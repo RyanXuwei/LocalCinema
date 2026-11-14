@@ -1,6 +1,6 @@
 # 映室 LocalCinema
 
-**Windows 私人影音庫｜v1.5.2**
+**Windows 私人影音庫｜v1.5.3**
 Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
 以暗色日系介面整理本機影片，從瀏覽器在本機或區網觀看。Windows 後台負責片源、掃描與轉檔，可縮至系統列持續運行。

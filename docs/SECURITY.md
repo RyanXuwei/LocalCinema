@@ -4,7 +4,7 @@ LocalCinema 是可信任本機／區網的私人影音工具，並非面向公�
 
 ## LAN admission
 
-後台產生帶 access 參數的 LAN 入口連結，首次成功後轉成 HttpOnly／SameSite Cookie；loopback 仍可直接進入。Host／Origin 檢查、前端請求 token 與防嵌入標頭提供額外限制。CORS 或 UI 隱藏本身不等於授權。
+後台產生帶 access 參數的 LAN 入口連結，首次成功後轉成 HttpOnly／SameSite=Lax Cookie（支援掃碼後頂層導覽）；loopback 仍可直接進入。Host／Origin 檢查、前端請求 token 與防嵌入標頭提供額外限制。CORS 或 UI 隱藏本身不等於授權。
 
 不要把入口連結、cookie、設定或資料庫提交 Git／貼到公開問題；也不要自行開放路由器連接埠。HTTP 不加密傳輸，請用可信任網路；密碼 hash 不會令 HTTP 密碼傳輸變成加密。
 

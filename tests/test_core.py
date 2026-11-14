@@ -90,6 +90,39 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(json.loads(request('GET','/api/library')[2])['items'],[])
             request('POST','/api/groups/lock',{},cookie);self.assertEqual(request('GET','/media/episode',cookie=cookie)[0],404)
         finally:server.shutdown();server.server_close();lib.shutdown()
+    def test_lan_entry_from_scanner(self):
+        import threading,http.client
+        from cinema import make_handler,ThreadingHTTPServer
+        lib=Library(lambda text:None,db_path=self.root/'lan.db',config=self.groups().config)
+        class RemoteHandler(make_handler(lib)):
+            def setup(self):
+                super().setup()
+                self.client_address=('192.0.2.20',self.client_address[1])
+        server=ThreadingHTTPServer(('127.0.0.1',0),RemoteHandler)
+        threading.Thread(target=server.serve_forever,daemon=True).start()
+        def request(path,cookie='',origin=None):
+            connection=http.client.HTTPConnection('127.0.0.1',server.server_port)
+            headers={'Cookie':cookie}
+            if origin: headers['Origin']=origin
+            connection.request('GET',path,headers=headers)
+            response=connection.getresponse(); result=(response.status,dict(response.getheaders()),response.read())
+            connection.close();return result
+        try:
+            self.assertEqual(request('/')[0],403)
+            self.assertEqual(request('/?access=wrong')[0],403)
+            status,headers,_=request('/?access='+lib.access_key)
+            self.assertEqual(status,303);self.assertEqual(headers['Location'],'/')
+            self.assertIn('SameSite=Lax',headers['Set-Cookie'])
+            self.assertIn('HttpOnly',headers['Set-Cookie'])
+            cookie=headers['Set-Cookie'].split(';')[0]
+            self.assertEqual(request('/',cookie)[0],200)
+            self.assertEqual(request('/api/library',cookie)[0],200)
+            status,headers,body=request('/assets/bitingbox-studio-plaque.svg',cookie)
+            self.assertEqual(status,200);self.assertIn('image/svg+xml',headers['Content-Type'])
+            self.assertEqual(body,(Path(__file__).resolve().parents[1]/'assets/bitingbox-studio-plaque.svg').read_bytes())
+            self.assertEqual(request('/api/library')[0],403)
+            self.assertEqual(request('/?access='+lib.access_key,origin='http://untrusted.invalid')[0],403)
+        finally:server.shutdown();server.server_close();lib.shutdown()
     def test_recycle_failure_is_retryable(self):
         store=ConversionStore(self.root/'test.db');source=self.root/'test.flv';output=self.root/'cache.mp4'
         source.write_bytes(b'original');output.write_bytes(b'converted');store.register('job',source,output);store.confirm('job')

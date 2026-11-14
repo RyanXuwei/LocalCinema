@@ -13,3 +13,5 @@
 - v1.3.1 使用內建 image_gen 對原頭像總覽去背，保持 6×5 順序，移除方塊背景與文字，再切為 30 個含 alpha 的 WebP。透明度不由 RGB 轉換抹除。
 
 - v1.5.2 頁尾使用 assets/bitingbox-studio-plaque.svg（使用者提供的 08_horizontal_plaque.svg 原稿），保留原始配色、向量路徑與比例；既有 PNG 仍供後台使用。
+
+- v1.5.3 依使用者要求移除橫式牌匾的米白底矩形；其餘向量路徑與配色保留。後台 PNG 由同一 SVG 等比例輸出並保留 alpha。

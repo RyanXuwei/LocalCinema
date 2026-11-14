@@ -390,7 +390,7 @@ def make_handler(lib):
             access=parse_qs(parsed.query).get('access',[''])[0]
             if self.command in ('GET','HEAD') and parsed.path=='/' and secrets.compare_digest(access.encode('utf-8'),lib.access_key.encode('utf-8')):
                 self.send_response(303); self.send_header('Location','/')
-                self.send_header('Set-Cookie',f'cinema_access={lib.access_key}; Max-Age=31536000; HttpOnly; SameSite=Strict; Path=/')
+                self.send_header('Set-Cookie',f'cinema_access={lib.access_key}; Max-Age=31536000; HttpOnly; SameSite=Lax; Path=/')
                 self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length','0'); self.end_headers()
                 return False
