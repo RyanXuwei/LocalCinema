@@ -798,9 +798,18 @@ def _run(instance):
         for address in addresses:
             url=f'http://{address}:{server.server_port}/?access={lib.access_key}'
             lan_links.append(url)
-            row=ttk.Frame(lan_frame); row.pack(fill='x')
-            label=ttk.Label(row,text=f'區網：{url}',cursor='hand2',foreground='#c7c9a6',font=('Segoe UI',10,'underline'),takefocus=True,wraplength=790)
-            label.pack(side='left')
+            row=ttk.LabelFrame(lan_frame,text='手機掃描連線',padding=12); row.pack(fill='x',pady=(8,4))
+            import qrcode
+            from PIL import ImageTk
+            qr=qrcode.QRCode(box_size=3,border=4,error_correction=qrcode.constants.ERROR_CORRECT_M)
+            qr.add_data(url); qr.make(fit=True)
+            photo=ImageTk.PhotoImage(qr.make_image(fill_color='#152018',back_color='white').convert('RGB'))
+            qr_label=ttk.Label(row,image=photo);qr_label.image=photo;qr_label.pack(side='right',padx=(16,0))
+            details=ttk.Frame(row);details.pack(side='left',fill='both',expand=True)
+            ttk.Label(details,text='區網連線已啟用',font=('Microsoft JhengHei UI',11,'bold')).pack(anchor='w',pady=(2,8))
+            label=ttk.Label(details,text=f'區網：{url}',cursor='hand2',foreground='#c7c9a6',font=('Segoe UI',10,'underline'),takefocus=True,wraplength=540)
+            label.pack(anchor='w')
+            ttk.Label(details,text='手機與電腦請連接相同網路。\n此 QR Code 含入口存取碼，請勿公開分享。',style='Sub.TLabel',wraplength=480).pack(anchor='w',pady=(10,2))
             label.bind('<Button-1>',lambda event,url=url:webbrowser.open(url))
             label.bind('<Return>',lambda event,url=url:webbrowser.open(url))
         root.after_idle(fit_content)

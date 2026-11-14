@@ -10,7 +10,7 @@ if '--self-test' in sys.argv:
             os.environ['LOCALAPPDATA']=isolated
             import cinema
             import pystray,send2trash,win32com.shell.shell
-            import imageio_ffmpeg
+            import imageio_ffmpeg, qrcode
             from PIL import Image
             import tkinter
             for name in ['index.html','assets/localcinema.ico','assets/bitingbox-studio.png','assets/group-icons/catalog.json']:
@@ -21,6 +21,7 @@ if '--self-test' in sys.argv:
             lib.shutdown()
             run=subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(),'-version'],capture_output=True,creationflags=0x08000000)
             assert run.returncode==0
+            assert qrcode.make('http://127.0.0.1:8765/?access=synthetic-test').size[0]>0
             result={'ok':True,'frozen':bool(getattr(sys,'frozen',False)),'ffmpeg':run.stdout.decode().splitlines()[0],'assets':True,'isolated_database':True,'dependencies':True}
     except Exception:
         result={'ok':False,'error':traceback.format_exc()}
@@ -38,7 +39,7 @@ def repair_guide(error):
 try:
     import pystray,send2trash,win32com.shell.shell
     from PIL import Image
-    import imageio_ffmpeg
+    import imageio_ffmpeg, qrcode
     assets=Path(__file__).resolve().parent
     for required in ['index.html','assets/localcinema.ico','assets/bitingbox-studio.png','assets/group-icons/catalog.json','assets/playback-modes.js','assets/short-queue.js','assets/interaction-controls.js','assets/catalog-pagination.js','assets/studio-layout.css','assets/studio-navigation.js']:
         if not (assets/required).is_file():raise FileNotFoundError(required)
