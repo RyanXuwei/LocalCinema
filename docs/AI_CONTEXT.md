@@ -2,7 +2,7 @@
 
 ## 目前狀態
 
-- 應用程式版本以 version.py 為準，目前為1.5.0。
+- 應用程式版本以 version.py 為準，目前為1.5.1。
 - 原始碼現在位於儲存庫根目錄；不要把忽略版控的 outputs/LocalCinema 當成主要維護來源。
 - 以使用者選定的prototype為方向完成深綠前端、桌面側邊／窄版底部導覽、Banner與卡片；新增studio-layout.css與studio-navigation.js，未加入未實作的分享控件。
 - README 已含完整使用說明、兩種收集圖解、實際虛構片單截圖與標為概念圖的AI prototype。
@@ -20,10 +20,10 @@
 
 讀AGENTS、實際 owning source 與相關測試，避免重新推導錯誤假設。不要無故重寫大型index.html；視覺增量優先放既有外部樣式與導覽層。新增asset需同步HTTP白名單與封裝；版本同步頁尾及CHANGELOG。
 
-## v1.5.0
+## v1.5.1
 
 圖 3 版面：右上頭像下拉、三欄圖片內資訊、進階篩選收納、方格／列表。Short 窄幅面板，installShortStudioControls 加入收藏、標籤、時間軸；底部共用間隔控件。後台沿用安全的原生視窗及兩個分頁，更新間距與配色。未新增無作用的分享按鈕。
 
-1.5.0：播放器樣式在 studio-layout.css；390px 使用兩列工具列。cinema.show_lan 在服務啟動後為每個 LAN URL 本機產生 QR Code，僅存在 Tk image，切勿輸出真實存取碼或截取個人服務卡片。qrcode 為必要依賴，launcher preflight 與 frozen self-test 都會匯入驗證。
+1.5.1：播放器樣式在 studio-layout.css；390px 使用兩列工具列。cinema.show_lan 在服務啟動後為每個 LAN URL 本機產生 QR Code，僅存在 Tk image，切勿輸出真實存取碼或截取個人服務卡片。qrcode 為必要依賴，launcher preflight 與 frozen self-test 都會匯入驗證。
 
-1.5.0：keyframeRail 移入 seekRow，keyframeToggle 直接新增；paused && !seeking && |currentTime-position|<=0.15 才可點刪。跳轉不呼叫 play，舊 title 資料保留，無 DB 遷移。
+1.5.1：keyframeRail 移入 seekRow，keyframeToggle 直接新增；paused && !seeking && |currentTime-position|<=0.15 才可點刪。跳轉不呼叫 play，舊 title 資料保留，無 DB 遷移。
