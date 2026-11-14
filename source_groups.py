@@ -50,7 +50,7 @@ class SourceGroups:
         filename=secrets.token_hex(16)+'.webp'
         with Image.open(path) as image:
             if image.width*image.height>40000000: raise ValueError('圖片過大，請選擇較小圖片。')
-            square=ImageOps.fit(ImageOps.exif_transpose(image).convert('RGB'),(512,512))
+            square=ImageOps.fit(ImageOps.exif_transpose(image).convert('RGBA'),(512,512))
             square.save(folder/filename,'WEBP',quality=90)
         group['custom_image']=filename; group['updated']=time.time_ns(); self.save(self.config)
     def image(self,group_id):
@@ -120,7 +120,7 @@ def open_group_manager(root,lib,on_change):
         return choice[0]
     def draw(event=None):
         try:
-            with Image.open(lib.source_groups.image(selected())) as image: window.avatar=ImageTk.PhotoImage(image.convert('RGB').resize((80,80)))
+            with Image.open(lib.source_groups.image(selected())) as image: window.avatar=ImageTk.PhotoImage(image.convert('RGBA').resize((80,80)))
             preview.configure(image=window.avatar)
         except (ValueError,OSError): preview.configure(image='')
     def refresh(group_id=None):
@@ -183,7 +183,7 @@ def open_group_manager(root,lib,on_change):
             picker.destroy();refresh(group_id)
         for index,entry in enumerate(lib.source_groups.catalog()):
             path=lib.source_groups.asset_dir/(entry['id']+'.webp')
-            with Image.open(path) as image:photo=ImageTk.PhotoImage(image.convert('RGB').resize((78,78)))
+            with Image.open(path) as image:photo=ImageTk.PhotoImage(image.convert('RGBA').resize((78,78)))
             picker.images.append(photo)
             ttk.Button(panel,text=entry['name'],image=photo,compound='top',command=lambda icon=entry['id']:apply(icon)).grid(row=index//6,column=index%6,padx=5,pady=5)
         picker.transient(window);picker.grab_set()
