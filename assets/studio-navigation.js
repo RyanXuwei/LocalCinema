@@ -42,6 +42,7 @@
     $('homeHide').innerHTML='<svg class="playerIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10 5c5-1 9 4 11 7l-3 4M6 6c-2 2-4 4-5 6 4 6 9 9 16 6M9 9a4 4 0 0 0 6 6"/></svg><span>Hide</span>';
     $('shortToggle').innerHTML='<svg class="playerIcon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 8 6 4-6 4Z"/></svg><span>Short</span>';
     for(const [id,path] of [['shortPrevious','m5 15 7-7 7 7'],['shortNext','m5 9 7 7 7-7']])$(id).innerHTML='<svg class="playerIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="'+path+'"/></svg>';
+    $('bossButton').innerHTML=$('homeHide').innerHTML;
     $('heroPlay').innerHTML=controlIcon('play');
     $('heroPlay').setAttribute('aria-label','播放推薦影片');
     document.querySelector('.heroButtons').append(document.querySelector('.bannerIntervals'));

@@ -1,13 +1,13 @@
 # 映室 LocalCinema
 
-**Windows 私人影音庫｜v1.4.1**
+**Windows 私人影音庫｜v1.5.0**
 Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
 以暗色日系介面整理本機影片，從瀏覽器在本機或區網觀看。Windows 後台負責片源、掃描與轉檔，可縮至系統列持續運行。
 
 ## 新版實際介面
 
-![v1.4.1 桌面片庫介面](docs/images/ui-desktop.jpg)
+![v1.5.0 桌面片庫介面](docs/images/ui-desktop.jpg)
 
 以上為實際程式使用隔離、虛構片單的畫面。封面使用專案預設插畫示範，沒有讀取個人片庫。
 
@@ -20,7 +20,7 @@ Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
 ![LocalCinema 概念介面](docs/images/localcinema-prototype.png)
 
-AI 生成的概念插圖，全部使用虛構內容，不是實際程式截圖。v1.4.1 已將其深綠側邊導覽、Banner 與卡片風格落實到程式；未加入圖中僅作示意且尚未實作的分享等控件。完整提示詞見 docs/images/prototype-prompt.json。
+AI 生成的概念插圖，全部使用虛構內容，不是實際程式截圖。v1.5.0 已將其深綠側邊導覽、Banner 與卡片風格落實到程式；未加入圖中僅作示意且尚未實作的分享等控件。完整提示詞見 docs/images/prototype-prompt.json。
 
 </details>
 
@@ -137,7 +137,7 @@ py -3.12 -m venv .venv
 | 雙擊中央 | 全螢幕切換 |
 | 滾輪／Shift＋滾輪 | 音量／進退時間 |
 
-快捷鍵在播放器開啟且焦點不在輸入控件時使用；播放器問號可查看操作說明。關鍵幀可加入目前時間或手動指定時間與名稱，點選即可跳播，依影片與集數分開保存。
+快捷鍵在播放器開啟且焦點不在輸入控件時使用；播放器問號可查看操作說明。按書籤圖示即在目前時間加入黃色旗標，不需輸入名稱。點旗標跳轉並維持原播放／暫停狀態；暫停且停在旗標位置（±0.15 秒）時再點可刪除，依影片與集數分開保存。
 
 ### Short 捲動模式
 
