@@ -642,11 +642,11 @@ def _run(instance):
     style.map('TButton',background=[('active','#46483f')],foreground=[('disabled','#77796f')])
     style.configure('Treeview',background='#20221f',fieldbackground='#20221f',foreground='#e5e1d7',rowheight=29)
     style.configure('Treeview.Heading',background='#30332d',foreground='#bdb8ac',padding=8)
-    style.map('Treeview',background=[('selected','#665347')],foreground=[('selected','#fff9ec')])
+    style.map('Treeview',background=[('selected','#41533e')],foreground=[('selected','#fff9ec')])
     style.configure('Sub.TLabel',foreground='#a4a194')
     style.configure('Source.TNotebook',background='#171817',tabmargins=(2,8,2,0))
-    style.configure('Source.TNotebook.Tab',padding=(20,11),background='#292c27',foreground='#bfc2b6',borderwidth=1)
-    style.map('Source.TNotebook.Tab',background=[('selected','#494b3d'),('active','#373b31')],foreground=[('selected','#fff3da'),('active','#f1eddf')],padding=[('selected',(20,11))])
+    style.configure('Source.TNotebook.Tab',padding=(18,8),background='#292c27',foreground='#bfc2b6',borderwidth=1)
+    style.map('Source.TNotebook.Tab',background=[('selected','#4c6447'),('active','#373b31')],foreground=[('selected','#fff3da'),('active','#f1eddf')],padding=[('selected',(18,8))])
     shell=ttk.Frame(root); shell.pack(fill='both',expand=True)
     canvas=tk.Canvas(shell,bg='#171817',highlightthickness=0)
     scrollbar=ttk.Scrollbar(shell,orient='vertical',command=canvas.yview)
@@ -670,7 +670,7 @@ def _run(instance):
         root.emblem=ImageTk.PhotoImage(Image.open(BASE/'assets'/'camellia-emblem.png').resize((62,42)))
         ttk.Label(heading,image=root.emblem).pack(side='left',padx=(0,10))
     except ImportError: pass
-    ttk.Label(heading,text='映室  /  LOCAL CINEMA',font=('Microsoft JhengHei UI',22)).pack(side='left')
+    ttk.Label(heading,text='映室  /  LOCAL CINEMA',font=('Microsoft JhengHei UI',18)).pack(side='left')
     ttk.Label(content,text='加入多個影片來源，啟動後以瀏覽器觀看；關閉視窗可留在系統列。').pack(anchor='w',padx=20)
     outer_content=content
     backend_pages=ttk.Notebook(outer_content,style='Source.TNotebook'); backend_pages.pack(fill='both',expand=True,padx=12,pady=8)
