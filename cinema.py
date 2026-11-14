@@ -415,7 +415,7 @@ def make_handler(lib):
                     return self.reply(200,file.read_bytes(),mimetypes.guess_type(str(file))[0] or 'image/webp')
                 if route.startswith('/assets/'):
                     name=route.removeprefix('/assets/')
-                    if name not in ('sumi-background.png','camellia-emblem.png','ui-icons.svg','catalog-pagination.js','localcinema.ico','localcinema-icon.png','playback-modes.js','short-queue.js','interaction-controls.js','bitingbox-studio.png','studio-layout.css','studio-navigation.js'): return self.reply(404,{'error':'不存在'})
+                    if name not in ('sumi-background.png','camellia-emblem.png','ui-icons.svg','catalog-pagination.js','localcinema.ico','localcinema-icon.png','playback-modes.js','short-queue.js','interaction-controls.js','bitingbox-studio.png','bitingbox-studio-plaque.svg','studio-layout.css','studio-navigation.js'): return self.reply(404,{'error':'不存在'})
                     return self.reply(200,(BASE/'assets'/name).read_bytes(),mimetypes.guess_type(name)[0] or 'application/octet-stream')
                 if route=='/api/library': return self.reply(200,visible_payload(lib,self.allowed_groups()))
                 if route.startswith('/media/') or route.startswith('/poster/') or route.startswith('/compatible/'):
