@@ -162,3 +162,47 @@ class ConversionStore:
                 episode['id']=alias['episode_id']; episode['name']=alias['episode_name']
                 if item['id']==flat_id: item['id']=alias['item_id']; item['title']=alias['title']
         return items
+
+
+class AutoPromoter:
+    """Session-only opt-in; failed snapshots wait for explicit retry."""
+    def __init__(self,store,on_success,log,recycler=recycle_file):
+        self.store=store; self.on_success=on_success; self.log=log; self.recycler=recycler
+        self.lock=threading.RLock(); self.enabled=False; self.busy=False
+        self.failed={}; self.stop_event=threading.Event(); self.worker=None
+        self.completed=0; self.errors=0
+    def set_enabled(self,enabled):
+        with self.lock:
+            self.enabled=bool(enabled)
+            if enabled:
+                self.failed.clear(); self.errors=0
+                if self.worker is None:
+                    self.worker=threading.Thread(target=self.run,daemon=True); self.worker.start()
+    def process_pending(self):
+        success=0
+        for row in self.store.records():
+            stamp=tuple(row[k] for k in ('source_size','source_mtime','output_size','output_mtime'))
+            with self.lock:
+                if not self.enabled or self.stop_event.is_set(): break
+                if self.failed.get(row['id'])==stamp: continue
+                self.busy=True
+            try:
+                self.store.confirm(row['id'])
+                self.store.promote(row['id'],recycler=self.recycler)
+                success+=1; self.completed+=1
+            except Exception:
+                self.failed[row['id']]=stamp; self.errors+=1
+                self.log('自動保留MP4未完成：項目已保留，請取消勾選後檢查；重新勾選可重試。')
+            finally:
+                with self.lock: self.busy=False
+        if success:
+            self.on_success()
+            self.log(f'自動保留MP4並回收原檔：完成 {success} 筆。')
+    def run(self):
+        while not self.stop_event.is_set():
+            try: self.process_pending()
+            except Exception: self.log('自動保留MP4暫未完成，稍後重新檢查。')
+            if self.stop_event.wait(.5): break
+    def close(self):
+        with self.lock: self.enabled=False; self.stop_event.set()
+        if self.worker: self.worker.join()

@@ -123,6 +123,53 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(request('/api/library')[0],403)
             self.assertEqual(request('/?access='+lib.access_key,origin='http://untrusted.invalid')[0],403)
         finally:server.shutdown();server.server_close();lib.shutdown()
+    def test_auto_promote_opt_in_existing_and_new(self):
+        from conversion_store import AutoPromoter
+        store=ConversionStore(self.root/'auto.db'); rescans=[]; recycled=[]
+        def recycler(path):
+            recycled.append(path);path.rename(path.with_suffix('.recycled'))
+        auto=AutoPromoter(store,lambda:rescans.append(True),lambda text:None,recycler)
+        def fixture(key):
+            source=self.root/(key+'.flv');source.write_bytes(b'original')
+            output=self.root/(key+'-cache.mp4');output.write_bytes(b'converted')
+            store.register(key,source,output,'item-'+key,'episode-'+key,key)
+            return source
+        source=fixture('one');collision=source.with_suffix('.mp4');collision.write_bytes(b'existing')
+        auto.process_pending();self.assertTrue(source.exists());self.assertEqual(recycled,[])
+        # Drive the same worker step deterministically without launching a thread.
+        auto.enabled=True;auto.process_pending()
+        self.assertFalse(source.exists());self.assertEqual(collision.read_bytes(),b'existing')
+        saved=self.root/'one.converted-one.mp4';self.assertEqual(saved.read_bytes(),b'converted')
+        source=fixture('two');auto.process_pending();self.assertFalse(source.exists())
+        self.assertEqual(store.records(),[]);self.assertEqual(auto.completed,2)
+        with store.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM media_replacements').fetchone()[0],2)
+        auto.set_enabled(False);source=fixture('three');auto.process_pending();self.assertTrue(source.exists())
+        auto.close()
+    def test_auto_promote_failure_waits_for_retry(self):
+        from conversion_store import AutoPromoter
+        store=ConversionStore(self.root/'auto-fail.db')
+        source=self.root/'source.flv';source.write_bytes(b'original')
+        output=self.root/'cache.mp4';output.write_bytes(b'converted');store.register('job',source,output)
+        attempts=[]
+        def recycler(path):attempts.append(path);raise OSError('synthetic failure')
+        auto=AutoPromoter(store,lambda:None,lambda text:None,recycler)
+        auto.enabled=True;auto.process_pending();auto.process_pending()
+        self.assertEqual(len(attempts),1);self.assertTrue(source.exists())
+        self.assertEqual(store.get('job')['status'],'saved')
+        auto.recycler=lambda path:path.rename(self.root/'recycled.flv')
+        auto.failed.clear();auto.process_pending()
+        self.assertFalse(source.exists());self.assertEqual(store.records(),[]);auto.close()
+    def test_auto_promote_disable_finishes_only_current(self):
+        from conversion_store import AutoPromoter
+        store=ConversionStore(self.root/'auto-stop.db')
+        for key in ['one','two']:
+            source=self.root/(key+'.flv');source.write_bytes(b'original')
+            output=self.root/(key+'.cache.mp4');output.write_bytes(b'converted');store.register(key,source,output)
+        def recycler(path):
+            auto.set_enabled(False);path.rename(path.with_suffix('.recycled'))
+        auto=AutoPromoter(store,lambda:None,lambda text:None,recycler)
+        auto.enabled=True;auto.process_pending()
+        self.assertEqual(auto.completed,1);self.assertEqual(len(store.records()),1);auto.close()
     def test_recycle_failure_is_retryable(self):
         store=ConversionStore(self.root/'test.db');source=self.root/'test.flv';output=self.root/'cache.mp4'
         source.write_bytes(b'original');output.write_bytes(b'converted');store.register('job',source,output);store.confirm('job')

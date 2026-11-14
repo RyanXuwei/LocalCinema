@@ -3,7 +3,7 @@ from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from contextlib import contextmanager
-from conversion_store import ConversionStore
+from conversion_store import ConversionStore,AutoPromoter
 from source_groups import SourceGroups,open_group_manager,DEFAULT_GROUP
 from source_help import open_source_help
 from version import APP_VERSION
@@ -149,6 +149,7 @@ class Library:
         self.background_wake=threading.Event(); self.shutdown_event=threading.Event()
         self.background_worker=None; self.scan_generation=0
         self.background_stats={'total':0,'checked':0,'ready':0,'failed':0}
+        self.auto_promoter=AutoPromoter(self.conversion_store,self.rescan,self.log)
     def prepare(self,episode,force=False):
         with self.lock:
             source=self.media.get(episode)
@@ -277,6 +278,7 @@ class Library:
                 try: temporary.unlink(missing_ok=True)
                 except OSError: pass
     def shutdown(self):
+        self.auto_promoter.close()
         with self.lock:
             self.closing=True; process=self.convert_process
         self.shutdown_event.set(); self.background_wake.set()
@@ -540,11 +542,11 @@ def open_conversion_records(root,lib,log):
     previous=getattr(root,'conversion_window',None)
     if previous and previous.winfo_exists(): previous.deiconify(); previous.lift(); return
     window=tk.Toplevel(root); root.conversion_window=window
-    window.title('轉檔記錄｜人工檢查後保留MP4'); window.configure(bg='#171817')
+    window.title('轉檔記錄｜保留MP4'); window.configure(bg='#171817')
     available_w=max(320,root.winfo_screenwidth()-60); available_h=max(320,root.winfo_screenheight()-100)
     window.geometry(f'{min(1100,available_w)}x{min(680,available_h)}'); window.minsize(min(760,available_w),min(480,available_h))
     ttk.Label(window,text='先開啟成品檢查 → 標記已確認 → 保留MP4並回收原檔',font=('Microsoft JhengHei UI',14)).pack(anchor='w',padx=16,pady=12)
-    ttk.Label(window,text='只處理你選取且已確認的記錄。MP4會先保存至來源資料夾並驗證；不覆蓋同名檔，原檔僅移至回收筒。',wraplength=1040).pack(anchor='w',padx=16)
+    ttk.Label(window,text='手動模式只處理選取且已確認的記錄。勾選略過人工審核後，自動處理全部完成項目；先保存、驗證，再回收原檔，不覆蓋同名檔。',wraplength=1040).pack(anchor='w',padx=16)
     frame=ttk.Frame(window); frame.pack(fill='both',expand=True,padx=16,pady=10)
     tree=ttk.Treeview(frame,columns=('status','name','source','output'),show='headings',selectmode='extended')
     for key,label,width in [('status','狀態',125),('name','影片',210),('source','原檔位置',380),('output','成品／保留MP4位置',380)]:
@@ -557,10 +559,13 @@ def open_conversion_records(root,lib,log):
     state=tk.StringVar(value='待處理與失敗項目會保留；保存MP4並成功回收原檔後，自動移除該筆記錄。'); ttk.Label(window,textvariable=state,wraplength=1040).pack(anchor='w',padx=16,pady=7)
     buttons=ttk.Frame(window); buttons.pack(fill='x',padx=16,pady=(0,14))
     rows={}; busy=False; results=queue.Queue()
+    auto_mode=tk.BooleanVar(value=lib.auto_promoter.enabled)
     names={'ready':'待人工檢查','confirmed':'已確認','saved':'MP4已保存／待回收','replaced':'僅保留MP4'}
     def selection_changed(event=None):
         selected=[rows[key] for key in tree.selection() if key in rows]
-        remove_button['state']='normal' if selected and not busy and all(row['confirmed_at'] and row['status'] in ('confirmed','saved') for row in selected) else 'disabled'
+        manual=not busy and not lib.auto_promoter.enabled and not lib.auto_promoter.busy
+        for button in (review_button,confirm_button): button['state']='normal' if manual else 'disabled'
+        remove_button['state']='normal' if selected and manual and all(row['confirmed_at'] and row['status'] in ('confirmed','saved') for row in selected) else 'disabled'
         details.configure(state='normal'); details.delete('1.0','end')
         if len(selected)==1:
             row=selected[0]; details.insert('end','原檔：'+row['source_path']+'\n成品：'+(row['saved_path'] or row['output_path'])+'\n狀態：'+names.get(row['status'],row['status']))
@@ -575,6 +580,7 @@ def open_conversion_records(root,lib,log):
         if remaining: tree.selection_set(remaining)
         selection_changed()
     def review():
+        if busy or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         selected=tree.selection()
         if len(selected)!=1: messagebox.showinfo('檢查成品','請選取一筆記錄。',parent=window); return
         if lib.privacy_state()['enabled'] and not messagebox.askyesno('開啟外部成品檢查','隱蔽目前已開啟。網頁以外的系統播放器不會套用毛玻璃，將顯示清晰成品。是否開啟？',parent=window): return
@@ -583,7 +589,7 @@ def open_conversion_records(root,lib,log):
     def run_batch(action):
         nonlocal busy
         selected=list(tree.selection())
-        if not selected or busy: return
+        if not selected or busy or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         if action=='confirm':
             if not messagebox.askyesno('人工檢查確認',f'你是否已播放檢查這 {len(selected)} 筆成品，確認畫面、聲音與內容沒有問題？\n此操作只標記已確認，不刪除原檔。',parent=window): return
         else:
@@ -592,7 +598,7 @@ def open_conversion_records(root,lib,log):
             if len(selected)>8: description+=f'\n另有 {len(selected)-8} 筆選取項目'
             if not messagebox.askyesno('確認保留MP4並回收原檔',f'將處理選取的 {len(selected)} 筆：\n{description}\n\n先在來源資料夾保存並驗證MP4，再將原檔移到資源回收筒。\n不覆蓋既有檔案；失敗時保留原檔。請先關閉正在播放原檔的裝置。\n是否繼續？',parent=window): return
         busy=True; root.conversion_busy=True; state.set('處理中，請勿移動或修改來源／成品…')
-        for button in (review_button,confirm_button,remove_button,refresh_button): button['state']='disabled'
+        for button in (review_button,confirm_button,remove_button,refresh_button,auto_check): button['state']='disabled'
         def worker():
             success=0; errors=[]
             for key in selected:
@@ -609,15 +615,24 @@ def open_conversion_records(root,lib,log):
         if not window.winfo_exists(): return
         while not results.empty():
             success,errors=results.get(); busy=False; root.conversion_busy=False
-            for button in (review_button,confirm_button,refresh_button): button['state']='normal'
+            for button in (review_button,confirm_button,refresh_button,auto_check): button['state']='normal'
             refresh(); state.set(f'完成 {success} 筆；失敗 {len(errors)} 筆。已完成保存與回收的記錄自動移除；其餘保留。')
             log('轉檔記錄操作完成。')
             if errors: messagebox.showwarning('部分項目未完成','\n'.join(errors[:10]),parent=window)
-        window.after(150,pump_results)
+        if lib.auto_promoter.enabled or lib.auto_promoter.busy:
+            refresh()
+            state.set(f'自動模式：完成 {lib.auto_promoter.completed} 筆；未完成 {lib.auto_promoter.errors} 筆。關閉此視窗仍持續；取消勾選後停止後續項目。')
+        else: selection_changed()
+        window.after(500,pump_results)
     review_button=ttk.Button(buttons,text='開啟成品檢查',command=review); review_button.pack(side='left',padx=3)
     confirm_button=ttk.Button(buttons,text='標記已確認',command=lambda:run_batch('confirm')); confirm_button.pack(side='left',padx=3)
     remove_button=ttk.Button(buttons,text='保留MP4並回收原檔',command=lambda:run_batch('promote'),state='disabled'); remove_button.pack(side='left',padx=3)
     refresh_button=ttk.Button(buttons,text='更新記錄',command=refresh); refresh_button.pack(side='left',padx=3)
+    def toggle_auto():
+        lib.auto_promoter.set_enabled(auto_mode.get())
+        selection_changed()
+        state.set('自動模式已啟用；處理全部既有與新完成項目。' if auto_mode.get() else '已停止後續自動項目；正在保存的單筆會安全完成。')
+    auto_check=ttk.Checkbutton(buttons,text='略過人工審核',variable=auto_mode,command=toggle_auto); auto_check.pack(side='left',padx=12)
     tree.bind('<<TreeviewSelect>>',selection_changed)
     def close():
         if busy: messagebox.showinfo('仍在處理','請等待目前操作完成，避免中斷保存。',parent=window)
@@ -842,7 +857,7 @@ def _run(instance):
             root.withdraw()
         else: messagebox.showinfo('系統列尚未啟用','請先安裝 pystray 與 Pillow，或使用最小化按鈕。'); root.iconify()
     def quit_app():
-        if getattr(root,'conversion_busy',False):
+        if getattr(root,'conversion_busy',False) or lib.auto_promoter.busy:
             messagebox.showinfo('仍在保存成品','請先等待轉檔記錄中的保存／回收作業完成，再結束程式。'); return
         lib.shutdown()
         if tray: tray.stop()
