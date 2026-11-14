@@ -1,0 +1,9 @@
+LocalCinema 安裝與修復
+本安裝包已包含 Python、Tcl/Tk、Pillow、pystray、Send2Trash、pywin32 及 FFmpeg，正常不需下載額外插件。
+若啟動檢查提示元件缺失：
+1. 完整結束LocalCinema（包含系統列）。
+2. 重新執行 LocalCinema_Setup_2026.11.14_x64.exe，選擇原安裝位置覆蓋修復。
+3. 不要只複製單一LocalCinema.exe，必須保留完整_internal資料夾。
+4. 若防毒軟體隔離檔案，先確認來源及隔離記錄，再重新安裝；程式不會自行修改防毒設定。
+修復、更新與解除安裝不移除 %LOCALAPPDATA%\LocalCinema 的個人資料。
+不支援的影片格式可由內建FFmpeg製作相容播放檔；個別影片損壞不等於缺少插件。

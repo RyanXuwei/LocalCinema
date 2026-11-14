@@ -1,0 +1,45 @@
+# Private application data must never be tracked
+config.json
+config.tmp
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3-wal
+*.sqlite3-shm
+group-images/
+posters/
+playback/
+# Local files / generated artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.lnk
+*.log
+*.partial.mp4
+*.part
+*.spec
+build/
+dist/
+outputs/
+work/
+# Personal media (decorative repository images remain allowed)
+*.mp4
+*.mkv
+*.kvm
+*.flv
+*.avi
+*.wmv
+*.rm
+*.rmvb
+*.mpeg
+*.mpg
+*.m4v
+*.mov
+*.ts
+*.m2ts
+*.webm

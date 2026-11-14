@@ -1,0 +1,152 @@
+[
+  {
+    "id": "action",
+    "name": "動作",
+    "file": "action.webp"
+  },
+  {
+    "id": "comedy",
+    "name": "喜劇",
+    "file": "comedy.webp"
+  },
+  {
+    "id": "romance",
+    "name": "愛情",
+    "file": "romance.webp"
+  },
+  {
+    "id": "science-fiction",
+    "name": "科幻",
+    "file": "science-fiction.webp"
+  },
+  {
+    "id": "fantasy",
+    "name": "奇幻",
+    "file": "fantasy.webp"
+  },
+  {
+    "id": "horror",
+    "name": "驚悚",
+    "file": "horror.webp"
+  },
+  {
+    "id": "mystery",
+    "name": "懸疑",
+    "file": "mystery.webp"
+  },
+  {
+    "id": "crime",
+    "name": "犯罪",
+    "file": "crime.webp"
+  },
+  {
+    "id": "adventure",
+    "name": "冒險",
+    "file": "adventure.webp"
+  },
+  {
+    "id": "animation",
+    "name": "動畫",
+    "file": "animation.webp"
+  },
+  {
+    "id": "documentary",
+    "name": "紀錄片",
+    "file": "documentary.webp"
+  },
+  {
+    "id": "nature",
+    "name": "自然",
+    "file": "nature.webp"
+  },
+  {
+    "id": "travel",
+    "name": "旅行",
+    "file": "travel.webp"
+  },
+  {
+    "id": "music",
+    "name": "音樂",
+    "file": "music.webp"
+  },
+  {
+    "id": "concert",
+    "name": "演唱會",
+    "file": "concert.webp"
+  },
+  {
+    "id": "sports",
+    "name": "運動",
+    "file": "sports.webp"
+  },
+  {
+    "id": "martial-arts",
+    "name": "武術",
+    "file": "martial-arts.webp"
+  },
+  {
+    "id": "war",
+    "name": "戰爭",
+    "file": "war.webp"
+  },
+  {
+    "id": "history",
+    "name": "歷史",
+    "file": "history.webp"
+  },
+  {
+    "id": "biography",
+    "name": "傳記",
+    "file": "biography.webp"
+  },
+  {
+    "id": "family",
+    "name": "家庭",
+    "file": "family.webp"
+  },
+  {
+    "id": "children",
+    "name": "兒童",
+    "file": "children.webp"
+  },
+  {
+    "id": "education",
+    "name": "教學",
+    "file": "education.webp"
+  },
+  {
+    "id": "cooking",
+    "name": "美食",
+    "file": "cooking.webp"
+  },
+  {
+    "id": "fashion",
+    "name": "時尚",
+    "file": "fashion.webp"
+  },
+  {
+    "id": "art",
+    "name": "藝術",
+    "file": "art.webp"
+  },
+  {
+    "id": "gaming",
+    "name": "遊戲",
+    "file": "gaming.webp"
+  },
+  {
+    "id": "cars",
+    "name": "汽車",
+    "file": "cars.webp"
+  },
+  {
+    "id": "ocean",
+    "name": "海洋",
+    "file": "ocean.webp"
+  },
+  {
+    "id": "collection",
+    "name": "綜合片庫",
+    "file": "collection.webp"
+  }
+]

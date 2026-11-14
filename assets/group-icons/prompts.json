@@ -1,0 +1,182 @@
+[
+  {
+    "id": "action",
+    "name": "動作",
+    "prompt": "Use case: logo-brand. Asset type: a single square avatar icon for a Japanese minimalist dark personal cinema app's genre profiles. Subject: a poised origami fox ninja with a vermilion lightning emblem. A bold readable centered silhouette, subtle folded washi-paper texture and matte cut-paper shapes, warm ivory with muted jade and vermilion accents on a deep charcoal rounded-square tile. Elegant friendly clean Japanese editorial style, no text, no letters, no watermark, no frame, not a sheet, one icon only. Strong legibility at 64px, square composition.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "comedy",
+    "name": "喜劇",
+    "prompt": "Use case: logo-brand. Asset type: a single square avatar icon for a Japanese minimalist dark personal cinema app's genre profiles. Subject: a friendly cream smiling theater-mask mascot with rounded cheeks. A bold readable centered silhouette, subtle folded washi-paper texture and matte cut-paper shapes, warm ivory with muted jade and vermilion accents on a deep charcoal rounded-square tile. Elegant friendly clean Japanese editorial style, no text, no letters, no watermark, no frame, not a sheet, one icon only. Strong legibility at 64px, square composition.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "romance",
+    "name": "愛情",
+    "prompt": "Use case: logo-brand. Asset type: a single square avatar icon for a Japanese minimalist dark personal cinema app's genre profiles. Subject: two simple folded-paper cranes forming a warm rose heart. A bold readable centered silhouette, subtle folded washi-paper texture and matte cut-paper shapes, warm ivory with muted jade and vermilion accents on a deep charcoal rounded-square tile. Elegant friendly clean Japanese editorial style, no text, no letters, no watermark, no frame, not a sheet, one icon only. Strong legibility at 64px, square composition.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "science-fiction",
+    "name": "科幻",
+    "prompt": "Use case: logo-brand. Asset type: a single square genre avatar for a Japanese minimalist dark cinema app. Subject: a tiny friendly robot head inside a ringed planet. Centered bold readable silhouette, folded washi-paper texture, matte cut-paper shapes, warm ivory, muted jade and vermilion on a deep charcoal rounded-square tile. Clean restrained friendly Japanese editorial design, no text, no letters, no watermark, not a sheet, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "fantasy",
+    "name": "奇幻",
+    "prompt": "Use case: logo-brand. Asset type: a single square genre avatar for a Japanese minimalist dark cinema app. Subject: a folded-paper dragon curled around a small ivory castle. Centered bold readable silhouette, folded washi-paper texture, matte cut-paper shapes, warm ivory, muted jade and vermilion on a deep charcoal rounded-square tile. Clean restrained friendly Japanese editorial design, no text, no letters, no watermark, not a sheet, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "horror",
+    "name": "驚悚",
+    "prompt": "Use case: logo-brand. Asset type: a single square genre avatar for a Japanese minimalist dark cinema app. Subject: a cute mysterious ghost with a dim lantern, elegant not gory. Centered bold readable silhouette, folded washi-paper texture, matte cut-paper shapes, warm ivory, muted jade and vermilion on a deep charcoal rounded-square tile. Clean restrained friendly Japanese editorial design, no text, no letters, no watermark, not a sheet, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "mystery",
+    "name": "懸疑",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese minimalist dark cinema library. Subject: an observant owl detective with a magnifying glass. Centered bold silhouette in matte folded washi-paper cutout style, warm ivory, muted jade, ochre and vermilion on deep charcoal rounded-square background. Friendly elegant minimal character design, readable at 64px. No text, letters, watermark, grids or mockups. One icon only.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "crime",
+    "name": "犯罪",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese minimalist dark cinema library. Subject: an ivory fingerprint spiral inside a detective badge. Centered bold silhouette in matte folded washi-paper cutout style, warm ivory, muted jade, ochre and vermilion on deep charcoal rounded-square background. Friendly elegant minimal character design, readable at 64px. No text, letters, watermark, grids or mockups. One icon only.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "adventure",
+    "name": "冒險",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese minimalist dark cinema library. Subject: a red-panda explorer with a small compass and scarf. Centered bold silhouette in matte folded washi-paper cutout style, warm ivory, muted jade, ochre and vermilion on deep charcoal rounded-square background. Friendly elegant minimal character design, readable at 64px. No text, letters, watermark, grids or mockups. One icon only.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "animation",
+    "name": "動畫",
+    "prompt": "Use case: logo-brand. Asset type: one square 1:1 genre profile avatar for a Japanese minimalist dark cinema library. Subject: a whimsical original origami cat character with expressive kind eyes. Centered bold readable silhouette, matte folded washi-paper shapes, warm ivory with muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean restrained friendly Japanese editorial style, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "documentary",
+    "name": "紀錄片",
+    "prompt": "Use case: logo-brand. Asset type: one square 1:1 genre profile avatar for a Japanese minimalist dark cinema library. Subject: a classic film camera with an ivory eye-shaped lens. Centered bold readable silhouette, matte folded washi-paper shapes, warm ivory with muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean restrained friendly Japanese editorial style, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "nature",
+    "name": "自然",
+    "prompt": "Use case: logo-brand. Asset type: one square 1:1 genre profile avatar for a Japanese minimalist dark cinema library. Subject: a gentle deer face framed by folded leaves and mountains. Centered bold readable silhouette, matte folded washi-paper shapes, warm ivory with muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean restrained friendly Japanese editorial style, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "travel",
+    "name": "旅行",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre avatar for a Japanese minimalist dark personal cinema app. Subject: an origami tanuki traveler with a paper airplane and tiny suitcase. Centered bold readable mascot or emblem in matte folded washi-paper cutout style, warm ivory and muted jade, ochre and vermilion on a deep charcoal rounded-square tile. Friendly clean Japanese editorial design, no text or letters, no watermark, no grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "music",
+    "name": "音樂",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre avatar for a Japanese minimalist dark personal cinema app. Subject: a gentle cat wearing elegant ivory headphones with one music-note shape. Centered bold readable mascot or emblem in matte folded washi-paper cutout style, warm ivory and muted jade, ochre and vermilion on a deep charcoal rounded-square tile. Friendly clean Japanese editorial design, no text or letters, no watermark, no grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "concert",
+    "name": "演唱會",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre avatar for a Japanese minimalist dark personal cinema app. Subject: a folded stage spotlight with a vermilion star and tiny microphone. Centered bold readable mascot or emblem in matte folded washi-paper cutout style, warm ivory and muted jade, ochre and vermilion on a deep charcoal rounded-square tile. Friendly clean Japanese editorial design, no text or letters, no watermark, no grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "sports",
+    "name": "運動",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a lively origami rabbit with an ivory basketball. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Friendly refined clear design, no violence or gore, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "martial-arts",
+    "name": "武術",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: an original folded-paper tiger martial artist with a simple belt. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Friendly refined clear design, no violence or gore, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "war",
+    "name": "戰爭",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a restrained paper soldier helmet paired with a white peace dove. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Friendly refined clear design, no violence or gore, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "history",
+    "name": "歷史",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a wise folded-paper crane with an ancient scroll. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, legible at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "biography",
+    "name": "傳記",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: an ivory silhouette portrait cameo emerging from a small open book. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, legible at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "family",
+    "name": "家庭",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: two friendly origami bears together beneath a tiny house-roof shape. Japanese minimalist matte folded washi-paper cutout style, centered bold silhouette, warm ivory and muted jade, ochre and vermilion accents on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, legible at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "children",
+    "name": "兒童",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese dark cinema library. Subject: a cheerful original paper bunny flying a colorful simple kite. Centered bold simple silhouette in matte folded washi-paper cutout style, ivory with muted jade, ochre and vermilion accents, deep charcoal rounded-square tile background. Friendly clean minimal design, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "education",
+    "name": "教學",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese dark cinema library. Subject: a friendly origami owl with an open book and a small idea-light. Centered bold simple silhouette in matte folded washi-paper cutout style, ivory with muted jade, ochre and vermilion accents, deep charcoal rounded-square tile background. Friendly clean minimal design, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "cooking",
+    "name": "美食",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square genre profile avatar for a Japanese dark cinema library. Subject: a warm ivory ramen bowl with folded-paper steam and a tiny smiling cat chef. Centered bold simple silhouette in matte folded washi-paper cutout style, ivory with muted jade, ochre and vermilion accents, deep charcoal rounded-square tile background. Friendly clean minimal design, no text or letters, no watermark, grid or mockup, one icon only, clear at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "fashion",
+    "name": "時尚",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a graceful origami swan with a simple hanger and scarf. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "art",
+    "name": "藝術",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a folded-paper paintbrush making a single vermilion ink circle. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "gaming",
+    "name": "遊戲",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a playful original origami raccoon holding a simple game controller. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, recognizable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "cars",
+    "name": "汽車",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: an origami red fox driver with a simple ivory steering wheel. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "ocean",
+    "name": "海洋",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a gentle folded-paper whale with one minimal wave. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  },
+  {
+    "id": "collection",
+    "name": "綜合片庫",
+    "prompt": "Use case: logo-brand. Asset type: one 1:1 square cinema genre profile avatar. Subject: a friendly original origami cat curator holding a classic cinema film reel. Japanese minimalist matte folded washi-paper cutout style, centered bold readable silhouette, warm ivory and muted jade, ochre and vermilion on deep charcoal rounded-square background. Clean friendly refined design, no text, letters, watermark, grid or mockup, one icon only, readable at 64px.",
+    "mode": "built-in image_gen"
+  }
+]
