@@ -58,6 +58,25 @@
     }
     panel.append(document.querySelector('.collectionActions'));
     filters.append(advanced);
+    const filterPanels=[$('tagFilterDetails'),advanced];
+    for(const details of filterPanels){
+        details.querySelector('summary').addEventListener('click',()=>{
+            if(!details.open)for(const other of filterPanels)if(other!==details)other.open=false;
+        });
+        details.addEventListener('toggle',()=>{
+            if(details.open)for(const other of filterPanels)if(other!==details)other.open=false;
+        });
+    }
+    document.addEventListener('pointerdown',event=>{
+        for(const details of filterPanels)if(details.open&&!details.contains(event.target))details.open=false;
+    });
+    document.addEventListener('keydown',event=>{
+        if(event.key!=='Escape')return;
+        const opened=filterPanels.find(details=>details.open);
+        if(!opened)return;
+        event.preventDefault();event.stopPropagation();
+        opened.open=false;opened.querySelector('summary').focus();
+    },true);
     const views=document.createElement('div');views.className='catalogViewSwitch';
     for(const [mode,label,path] of [['grid','方格檢視','M3 3h6v6H3z M15 3h6v6h-6z M3 15h6v6H3z M15 15h6v6h-6z'],['list','列表檢視','M8 5h13M8 12h13M8 19h13M3 5h1M3 12h1M3 19h1']]){
         const button=document.createElement('button');button.title=label;button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(mode==='grid'));

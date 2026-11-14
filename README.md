@@ -1,13 +1,13 @@
 # 映室 LocalCinema
 
-**Windows 私人影音庫｜v1.4.0**
+**Windows 私人影音庫｜v1.4.1**
 Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
 以暗色日系介面整理本機影片，從瀏覽器在本機或區網觀看。Windows 後台負責片源、掃描與轉檔，可縮至系統列持續運行。
 
 ## 新版實際介面
 
-![v1.4.0 桌面片庫介面](docs/images/ui-desktop.jpg)
+![v1.4.1 桌面片庫介面](docs/images/ui-desktop.jpg)
 
 以上為實際程式使用隔離、虛構片單的畫面。封面使用專案預設插畫示範，沒有讀取個人片庫。
 
@@ -20,7 +20,7 @@ Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
 ![LocalCinema 概念介面](docs/images/localcinema-prototype.png)
 
-AI 生成的概念插圖，全部使用虛構內容，不是實際程式截圖。v1.4.0 已將其深綠側邊導覽、Banner 與卡片風格落實到程式；未加入圖中僅作示意且尚未實作的分享等控件。完整提示詞見 docs/images/prototype-prompt.json。
+AI 生成的概念插圖，全部使用虛構內容，不是實際程式截圖。v1.4.1 已將其深綠側邊導覽、Banner 與卡片風格落實到程式；未加入圖中僅作示意且尚未實作的分享等控件。完整提示詞見 docs/images/prototype-prompt.json。
 
 </details>
 
@@ -192,3 +192,5 @@ MP4 保存至來源資料夾，不覆蓋同名檔案；原檔只送回收筒，�
 服務啟動後，「服務與轉檔」頁會為每個區網位址顯示 QR Code。手機連接相同網路後掃描即可使用完整入口連結；QR Code 在本機生成，內含存取碼，請勿公開分享。
 
 ![播放器實際介面（虛構影片）](docs/images/ui-player.png)
+
+標籤篩選與進階篩選一次開啟一個；點擊面板外空白處或按 Esc 可收起，面板內勾選不會關閉。
