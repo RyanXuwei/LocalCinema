@@ -311,6 +311,45 @@ class CoreTests(unittest.TestCase):
         with patch('playback_storage.shutil.disk_usage',return_value=SimpleNamespace(free=1)):
             with self.assertRaises(OSError):wait_for_conversion(process,self.root,Mock())
         process.terminate.assert_called_once();process.wait.assert_called_once_with(timeout=5)
+    def test_progress_reports_verified_move_and_cleanup(self):
+        from operation_progress import OperationProgress
+        state=OperationProgress();events=[]
+        def progress(*args):state.update(*args);events.append(state.snapshot())
+        old=self.root/'old';old.mkdir();new=self.root/'new';name='8'*64+'.mp4'
+        (old/name).write_bytes(b'synthetic'*300000)
+        lib=Library(lambda text:None,db_path=self.root/'progress.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=old)
+        try:lib.relocate_playback(new,progress=progress)
+        finally:lib.shutdown()
+        self.assertTrue(any(e['phase']=='複製快取' and e['done']==e['size']>0 for e in events))
+        self.assertTrue(any(e['phase']=='提交前複核副本' for e in events))
+        self.assertTrue(any(e['phase']=='清理前複核新檔' for e in events))
+        self.assertTrue(all(0<=e['done']<=e['size'] for e in events))
+    def test_real_synthetic_encoding_progress(self):
+        import subprocess,time
+        from unittest.mock import patch
+        from operation_progress import parse_encode_progress,parse_duration
+        lib=Library(lambda text:None,db_path=self.root/'encode.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=self.root/'cache')
+        if not lib.ffmpeg:lib.shutdown();self.skipTest('FFmpeg unavailable')
+        source=self.root/'synthetic.avi'
+        try:
+            run=subprocess.run([lib.ffmpeg,'-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=160x90:r=12','-t','2','-c:v','mpeg4',str(source)],capture_output=True,timeout=15,creationflags=0x08000000 if os.name=='nt' else 0)
+            self.assertEqual(run.returncode,0)
+            lib.media={'episode':source}
+            with patch('cinema.parse_encode_progress',wraps=parse_encode_progress) as parsed:
+                lib.prepare('episode',force=True);end=time.monotonic()+15
+                while time.monotonic()<end:
+                    with lib.lock:states=[job['state'] for job in lib.conversions.values()]
+                    if states and states[0] in ('ready','error'):break
+                    time.sleep(.03)
+                self.assertEqual(states,['ready']);self.assertGreater(parsed.call_count,0)
+            self.assertIsNone(lib.conversion_status()['active'])
+            self.assertEqual(parse_duration('Duration: 00:01:30.50'),90.5)
+            self.assertIsNone(parse_duration('Duration: N/A'))
+            self.assertIsNone(parse_encode_progress('out_time_us=N/A',10))
+            self.assertEqual(parse_encode_progress('out_time_us=5000000',10)['percent'],50)
+            self.assertLess(parse_encode_progress('out_time_us=12000000',10)['percent'],100)
+            self.assertIsNone(parse_encode_progress('out_time_us=1000000',None)['percent'])
+        finally:lib.shutdown()
     def test_recycle_failure_is_retryable(self):
         store=ConversionStore(self.root/'test.db');source=self.root/'test.flv';output=self.root/'cache.mp4'
         source.write_bytes(b'original');output.write_bytes(b'converted');store.register('job',source,output);store.confirm('job')

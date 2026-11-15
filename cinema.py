@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from contextlib import contextmanager
 from conversion_store import ConversionStore,AutoPromoter
+from operation_progress import OperationProgress,parse_duration,parse_encode_progress
 from playback_storage import playback_directory,relocate_playback,cache_usage,wait_for_conversion,cleanup_moved_copies
 from source_groups import SourceGroups,open_group_manager,DEFAULT_GROUP
 from source_help import open_source_help
@@ -163,7 +164,8 @@ class Library:
         self.background_wake=threading.Event(); self.shutdown_event=threading.Event()
         self.background_worker=None; self.scan_generation=0
         self.background_stats={'total':0,'checked':0,'ready':0,'failed':0}
-        self.auto_promoter=AutoPromoter(self.conversion_store,self.rescan,self.log)
+        self.file_progress=OperationProgress()
+        self.auto_promoter=AutoPromoter(self.conversion_store,self.rescan,self.log,progress=self.file_progress.update)
     def prepare(self,episode,force=False):
         with self.lock:
             if self.cache_migrating: return {'state':'error','message':'正在搬移轉檔快取，請稍後再試。'}
@@ -187,28 +189,28 @@ class Library:
                 if self.convert_worker is None:
                     self.convert_worker=threading.Thread(target=self._convert,daemon=True); self.convert_worker.start()
             return dict(self.conversions[key])
-    def relocate_playback(self,destination):
+    def relocate_playback(self,destination,progress=None):
         with self.lock:
             if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
                 raise ValueError('請先停止服務、關閉背景預轉與自動保留，並等待目前轉檔或掃描完成。')
             self.cache_migrating=True
         try:
             with self.conversion_store.lock:
-                result=relocate_playback(self.playback_dir,destination,self.db_path)
+                result=relocate_playback(self.playback_dir,destination,self.db_path,progress=progress)
                 with self.lock:
                     self.playback_dir=playback_directory(self.db_path,self.playback_dir)
                     self.compat_media={key:self.playback_dir/path.name for key,path in self.compat_media.items()}
             return result
         finally:
             with self.lock: self.cache_migrating=False
-    def cleanup_playback(self):
+    def cleanup_playback(self,progress=None):
         with self.lock:
             if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
                 raise ValueError('請停止服務與背景作業，等候轉檔完成後再清理。')
             self.cache_migrating=True
         try:
-            moved=cleanup_moved_copies(self.db_path)
-            result=self.conversion_store.cleanup_cache(self.playback_dir,legacy=True)
+            moved=cleanup_moved_copies(self.db_path,progress=progress)
+            result=self.conversion_store.cleanup_cache(self.playback_dir,legacy=True,progress=progress)
             return {key:result[key]+moved[key] for key in ('removed','bytes','retained')}
         finally:
             with self.lock:self.cache_migrating=False
@@ -289,22 +291,38 @@ class Library:
             states=[job['state'] for job in self.conversions.values()]
             return dict(self.background_stats,enabled=self.background_enabled,
                         queued=states.count('queued'),converting=states.count('converting'),
-                        completed=states.count('ready'),errors=states.count('error'))
+                        completed=states.count('ready'),errors=states.count('error'),active=next((dict(job) for job in self.conversions.values() if job['state']=='converting'),None))
     def _convert(self):
         while not self.closing:
             job=self.convert_queue.get()
             if job is None: return
             key,source,target=job
-            temporary=target.with_suffix('.partial.mp4')
+            temporary=target.with_suffix('.partial.mp4');reader=None;process=None
             try:
                 with self.lock:
+                    if self.closing:return
+                    self.conversions[key]={'state':'converting','seconds':0,'percent':None,'duration':None}
+                try:
+                    probe=subprocess.run([self.ffmpeg,'-hide_banner','-i',str(source)],capture_output=True,timeout=15,creationflags=0x08000000 if os.name=='nt' else 0)
+                    duration=parse_duration(probe.stderr.decode('utf-8',errors='replace'))
+                except (OSError,subprocess.TimeoutExpired):duration=None
+                with self.lock:
                     if self.closing: return
-                    self.conversions[key]={'state':'converting','message':'正在製作相容播放檔，完成後自動播放；首次轉換可能較久。'}
+                    self.conversions[key]={'seconds':0,'duration':duration,'percent':None,'state':'converting','message':'正在製作相容播放檔，完成後自動播放；首次轉換可能較久。'}
                     if shutil.disk_usage(self.playback_dir).free<512*1024*1024:
                         raise OSError('快取空間不足，請先清理或搬移快取。')
-                    self.convert_process=subprocess.Popen([self.ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-i',str(source),'-map','0:v:0','-map','0:a:0?','-sn','-dn','-vf','scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p','-c:v','libx264','-preset','veryfast','-crf','22','-c:a','aac','-b:a','160k','-ac','2','-movflags','+faststart','-threads','2','-y',str(temporary)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000 if os.name=='nt' else 0)
+                    self.convert_process=subprocess.Popen([self.ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-progress','pipe:1','-nostats','-i',str(source),'-map','0:v:0','-map','0:a:0?','-sn','-dn','-vf','scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p','-c:v','libx264','-preset','veryfast','-crf','22','-c:a','aac','-b:a','160k','-ac','2','-movflags','+faststart','-threads','2','-y',str(temporary)],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,encoding='utf-8',errors='replace',creationflags=0x08000000 if os.name=='nt' else 0)
                     process=self.convert_process
+                def read_progress(process=process,job_key=key,job_duration=duration):
+                    for line in process.stdout:
+                        value=parse_encode_progress(line,job_duration)
+                        if value:
+                            with self.lock:
+                                if self.conversions[job_key]['state']=='converting':self.conversions[job_key].update(value)
+                reader=threading.Thread(target=read_progress,daemon=True);reader.start()
                 result=wait_for_conversion(process,self.playback_dir,self.shutdown_event)
+                reader.join(timeout=2)
+                if not reader.is_alive():process.stdout.close()
                 with self.lock:
                     if self.closing: return
                     if result!=0 or not temporary.is_file() or not temporary.stat().st_size: raise RuntimeError('conversion failed')
@@ -321,6 +339,9 @@ class Library:
                 with self.lock: self.conversions[key]={'state':'error','message':'無法轉換此影片；來源可能損壞、受保護或使用不支援的編碼。'}
                 self.log('相容播放檔製作失敗；未變更原始影片。')
             finally:
+                if reader:
+                    reader.join(timeout=2)
+                    if not reader.is_alive() and process.stdout and not process.stdout.closed:process.stdout.close()
                 with self.lock: self.convert_process=None
                 try: temporary.unlink(missing_ok=True)
                 except OSError: pass
@@ -585,26 +606,63 @@ def make_handler(lib):
             except (ValueError,KeyError,TypeError): self.reply(400,{'error':'資料格式錯誤'})
     return Handler
 
+def render_operation_progress(bar,text,value):
+    phase=value['phase'];size=value['size'];done=value['done']
+    suffix=f" · 第 {value['index']}/{value['total']} 個" if value['total'] else ''
+    if size:
+        if str(bar['mode'])!='determinate':bar.stop();bar.configure(mode='determinate')
+        percent=min(100,done/size*100);bar['value']=percent
+        text.set(f'{phase}{suffix} · 目前檔案 {percent:.1f}% · {done/1024**2:.1f}/{size/1024**2:.1f} MB')
+    else:
+        if str(bar['mode'])!='indeterminate':bar.configure(mode='indeterminate');bar.start(12)
+        text.set(phase+suffix+' · 處理中')
+
+def render_conversion_progress(lib,bar,text):
+    active=lib.conversion_status()['active']
+    if not active:
+        bar.stop();bar.configure(mode='determinate');bar['value']=0;text.set('目前沒有正在轉檔的影片');return
+    percent=active.get('percent')
+    if percent is None:
+        if str(bar['mode'])!='indeterminate':bar.configure(mode='indeterminate');bar.start(12)
+        text.set(f"目前影片：已轉 {active.get('seconds',0):.1f} 秒 · 讀取長度或轉檔中")
+    else:
+        if str(bar['mode'])!='determinate':bar.stop();bar.configure(mode='determinate')
+        bar['value']=percent
+        text.set(f"目前影片：{percent:.1f}% · {active['seconds']:.1f}/{active['duration']:.1f} 秒")
+
 def build_cache_controls(parent,root,lib,service_running):
     cache_row=ttk.Frame(parent); cache_row.pack(fill='x',padx=20,pady=(8,4))
     cache_text=tk.StringVar(value='轉檔快取目錄：'+str(lib.playback_dir))
     ttk.Label(cache_row,textvariable=cache_text,wraplength=900).pack(anchor='w',fill='x')
-    cache_results=queue.Queue()
+    cache_results=queue.Queue();operation=OperationProgress()
+    progress_text=tk.StringVar(value='待命')
+    progress_label=ttk.Label(parent,textvariable=progress_text,wraplength=900)
+    progress_label.pack(fill='x',padx=20,pady=(6,2))
+    progress_bar=ttk.Progressbar(parent,maximum=100);progress_bar.pack(fill='x',padx=20,pady=(0,6))
+    def poll_progress():
+        if not parent.winfo_exists():return
+        if getattr(root,'cache_move_busy',False):render_operation_progress(progress_bar,progress_text,operation.snapshot())
+        parent.after(150,poll_progress)
+    def end_progress(error):
+        progress_bar.stop();progress_bar.configure(mode='determinate');progress_bar['value']=0 if error else 100
+        progress_text.set('作業未完成；請查看提示' if error else '作業完成')
+    poll_progress()
     def choose_cache():
         if service_running() or lib.cache_migrating or getattr(root,'cache_move_busy',False) or getattr(root,'conversion_busy',False):
             messagebox.showinfo('請先停止服務','請停止服務並等候保存作業完成後再搬移快取。',parent=root); return
         folder=filedialog.askdirectory(title='選擇轉檔快取目錄（搬移既有快取）',parent=root)
         if not folder:return
+        operation.update('準備搬移')
         cache_button['state']='disabled'; root.cache_move_busy=True
         cache_text.set('正在搬移與驗證快取，請勿關閉程式…')
         def worker():
-            try: cache_results.put((lib.relocate_playback(folder),None))
+            try: cache_results.put((lib.relocate_playback(folder,progress=operation.update),None))
             except Exception as error: cache_results.put((None,str(error)))
         threading.Thread(target=worker,daemon=True).start()
         def finish():
             if cache_results.empty(): root.after(200,finish); return
             result,error=cache_results.get(); root.cache_move_busy=False; cache_button['state']='normal'
-            cache_text.set('轉檔快取目錄：'+str(lib.playback_dir))
+            cache_text.set('轉檔快取目錄：'+str(lib.playback_dir));end_progress(error)
             if error:messagebox.showerror('未完成搬移',error,parent=root)
             else:messagebox.showinfo('快取目錄已更新',f"已搬移並驗證 {result['moved']} 個快取。\n舊目錄保留 {result['retained']} 個未能清理的快取。\n後續轉檔將使用新目錄。",parent=root)
         root.after(200,finish)
@@ -620,17 +678,18 @@ def build_cache_controls(parent,root,lib,service_running):
     def clean_cache():
         if service_running() or getattr(root,'cache_move_busy',False) or getattr(root,'conversion_busy',False):
             messagebox.showinfo('請先停止服務','請停止服務並等候保存或搬移作業完成。',parent=root);return
+        operation.update('準備清理')
         root.cache_move_busy=True;clean_button['state']='disabled';cache_button['state']='disabled'
         space_text.set('正在核對已保存的副本；無法確認的快取將保留…')
         result_queue=queue.Queue()
         def worker():
-            try:result_queue.put((lib.cleanup_playback(),None))
+            try:result_queue.put((lib.cleanup_playback(progress=operation.update),None))
             except Exception as error:result_queue.put((None,str(error)))
         threading.Thread(target=worker,daemon=True).start()
         def finish():
             if result_queue.empty():root.after(200,finish);return
             result,error=result_queue.get();root.cache_move_busy=False
-            clean_button['state']='normal';cache_button['state']='normal';check_space()
+            clean_button['state']='normal';cache_button['state']='normal';check_space();end_progress(error)
             if error:messagebox.showerror('清理未完成',error,parent=root)
             else:messagebox.showinfo('安全清理完成',f"已清理 {result['removed']} 個重複快取，釋放 {result['bytes']/1024**3:.2f} GB。\n無法驗證或仍待處理的快取不會刪除。",parent=root)
         root.after(200,finish)
@@ -655,6 +714,10 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
     ttk.Label(records_page,text='先開啟成品檢查 → 標記已確認 → 保留MP4並回收原檔',font=('Microsoft JhengHei UI',14)).pack(anchor='w',padx=16,pady=12)
     ttk.Label(records_page,text='手動模式只處理選取且已確認的記錄。勾選略過人工審核後，自動處理全部完成項目；先保存、驗證，再回收原檔，不覆蓋同名檔。',wraplength=1040).pack(anchor='w',padx=16)
     build_cache_controls(storage_page,root,lib,service_running)
+    encode_text=tk.StringVar();ttk.Label(records_page,textvariable=encode_text).pack(fill='x',padx=16)
+    encode_bar=ttk.Progressbar(records_page,maximum=100);encode_bar.pack(fill='x',padx=16,pady=4)
+    save_text=tk.StringVar(value='保存作業：待命');ttk.Label(records_page,textvariable=save_text).pack(fill='x',padx=16)
+    save_bar=ttk.Progressbar(records_page,maximum=100);save_bar.pack(fill='x',padx=16,pady=4)
     frame=ttk.Frame(records_page); frame.pack(fill='both',expand=True,padx=16,pady=10)
     tree=ttk.Treeview(frame,columns=('status','name','source','output'),show='headings',selectmode='extended')
     for key,label,width in [('status','狀態',125),('name','影片',210),('source','原檔位置',380),('output','成品／保留MP4位置',380)]:
@@ -709,10 +772,12 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
         for button in (review_button,confirm_button,remove_button,refresh_button,auto_check): button['state']='disabled'
         def worker():
             success=0; errors=[]
-            for key in selected:
+            for number,key in enumerate(selected,1):
+                def progress(phase,index=0,total=0,done=0,size=0):lib.file_progress.update(phase,number,len(selected),done,size)
+                progress('確認成品' if action=='confirm' else '準備保存')
                 try:
-                    if action=='confirm': lib.conversion_store.confirm(key)
-                    else: lib.conversion_store.promote(key)
+                    if action=='confirm': lib.conversion_store.confirm(key,progress=progress)
+                    else: lib.conversion_store.promote(key,progress=progress)
                     success+=1
                 except Exception as error: errors.append(Path(rows[key]['source_path']).name+'：'+str(error))
             if action!='confirm' and success: lib.rescan()
@@ -721,6 +786,9 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
     def pump_results():
         nonlocal busy
         if not window.winfo_exists(): return
+        render_conversion_progress(lib,encode_bar,encode_text)
+        if busy or lib.auto_promoter.busy:render_operation_progress(save_bar,save_text,lib.file_progress.snapshot())
+        else:save_bar.stop();save_bar.configure(mode='determinate');save_bar['value']=0;save_text.set('保存作業：待命')
         while not results.empty():
             success,errors=results.get(); busy=False; root.conversion_busy=False
             for button in (review_button,confirm_button,refresh_button,auto_check): button['state']='normal'
@@ -908,6 +976,8 @@ def _run(instance):
     ttk.Label(content,textvariable=conversion_text,wraplength=800).pack(anchor='w',padx=20,pady=(5,2))
     conversion_progress=ttk.Progressbar(content,mode='determinate',maximum=100)
     conversion_progress.pack(fill='x',padx=20,pady=(0,7))
+    active_text=tk.StringVar();ttk.Label(content,textvariable=active_text,wraplength=850).pack(fill='x',padx=20)
+    active_bar=ttk.Progressbar(content,maximum=100);active_bar.pack(fill='x',padx=20,pady=(2,7))
     status=tk.StringVar(value='尚未啟動')
     status_link=ttk.Label(content,textvariable=status,takefocus=True)
     status_link.pack(anchor='w',padx=20)
@@ -994,6 +1064,7 @@ def _run(instance):
     ttk.Label(studio_row,text=f'Created by Ryan Hsu. 2026 © Copyright  ·  v{APP_VERSION}',style='Sub.TLabel').pack(side='left',padx=16)
 
     def pump():
+        render_conversion_progress(lib,active_bar,active_text)
         info=lib.conversion_status()
         conversion_text.set(('背景預轉［開啟］' if info['enabled'] else '背景預轉［暫停］')+f"：已檢查 {info['checked']}/{info['total']} · 就緒 {info['ready']} · 排隊 {info['queued']} · 轉換中 {info['converting']} · 本次完成 {info['completed']} · 失敗 {max(info['failed'],info['errors'])}")
         conversion_progress['value']=info['checked']/info['total']*100 if info['total'] else 0

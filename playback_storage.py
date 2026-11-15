@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from contextlib import closing
 from conversion_store import file_hash
+from operation_progress import report,tracked_hash
 
 CACHE_NAME=re.compile(r"[0-9a-f]{64}\.mp4",re.I)
 
@@ -16,7 +17,8 @@ def playback_directory(db_path,default):
         row=db.execute("SELECT value FROM app_settings WHERE key='playback_directory'").fetchone()
     return Path(row[0]) if row else Path(default)
 
-def relocate_playback(source,destination,db_path):
+def relocate_playback(source,destination,db_path,progress=None):
+    report(progress,'盤點快取')
     source=Path(source).absolute(); destination=Path(destination).absolute()
     if source.is_symlink() or destination.is_symlink():
         raise ValueError('快取目錄不可為符號連結。')
@@ -36,19 +38,24 @@ def relocate_playback(source,destination,db_path):
     if shutil.disk_usage(destination).free<sizes:
         raise OSError('新目錄空間不足；舊快取未移除。')
     verified=[]
-    for path in files:
+    for index,path in enumerate(files,1):
         before=path.stat(); target=destination/path.name
-        digest=file_hash(path)
+        digest=tracked_hash(file_hash,path,progress,'核對來源',index,len(files))
         if target.exists():
-            if target.is_symlink() or not target.is_file() or target.stat().st_size!=before.st_size or file_hash(target)!=digest:
+            if target.is_symlink() or not target.is_file() or target.stat().st_size!=before.st_size or tracked_hash(file_hash,target,progress,'驗證既有副本',index,len(files))!=digest:
                 raise ValueError('新目錄已有不同內容的同名快取；未覆蓋，舊快取保留。')
         else:
             temporary=destination/('.'+path.name+'.'+uuid.uuid4().hex+'.part')
             try:
                 with path.open('rb') as reader,temporary.open('xb') as writer:
-                    shutil.copyfileobj(reader,writer,1024*1024); writer.flush(); os.fsync(writer.fileno())
+                    done=0
+                    while True:
+                        block=reader.read(1024*1024)
+                        if not block:break
+                        writer.write(block);done+=len(block);report(progress,'複製快取',index,len(files),done,before.st_size)
+                    writer.flush(); os.fsync(writer.fileno())
                 shutil.copystat(path,temporary)
-                if file_hash(temporary)!=digest: raise OSError('快取副本驗證失敗；舊快取保留。')
+                if tracked_hash(file_hash,temporary,progress,'驗證新副本',index,len(files))!=digest: raise OSError('快取副本驗證失敗；舊快取保留。')
                 # Both paths are on destination's filesystem. Never overwrite.
                 try: os.link(temporary,target)
                 except OSError:
@@ -61,8 +68,8 @@ def relocate_playback(source,destination,db_path):
         verified.append((path,target,digest,before.st_size,before.st_mtime_ns))
     # Commit paths and directory together; other library and identity data stay untouched.
     with closing(sqlite3.connect(db_path,timeout=20)) as db,db:
-        for path,target,digest,size,mtime in verified:
-            if file_hash(path)!=digest or file_hash(target)!=digest:
+        for index,(path,target,digest,size,mtime) in enumerate(verified,1):
+            if tracked_hash(file_hash,path,progress,'提交前複核來源',index,len(verified))!=digest or tracked_hash(file_hash,target,progress,'提交前複核副本',index,len(verified))!=digest:
                 raise OSError('搬移提交前二次驗證失敗；舊快取保留。')
             stamp=target.stat()
             db.execute('UPDATE conversion_records SET output_path=?,output_size=?,output_mtime=? WHERE output_path=?',
@@ -70,16 +77,17 @@ def relocate_playback(source,destination,db_path):
             db.execute('UPDATE cache_copies SET cache_path=? WHERE cache_path=?',(str(target),str(path)))
             db.execute('INSERT OR REPLACE INTO cache_moves VALUES(?,?,?)',(str(path),str(target),digest))
         db.execute("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('playback_directory',?)",(str(destination),))
-    cleanup=cleanup_moved_copies(db_path)
+    cleanup=cleanup_moved_copies(db_path,progress=progress)
     return {'moved':len(verified),'bytes':sum(row[3] for row in verified),'retained':cleanup['retained']}
 
 
-def cleanup_moved_copies(db_path):
+def cleanup_moved_copies(db_path,progress=None):
     removed=freed=retained=0
     with closing(sqlite3.connect(db_path,timeout=20)) as db:
         rows=list(db.execute('SELECT old_path,new_path,sha256 FROM cache_moves'))
         protected={str(Path(value).resolve()).casefold() for row in db.execute('SELECT source_path,output_path,saved_path FROM conversion_records') for value in row if value}
-    for old_name,new_name,digest in rows:
+    for index,(old_name,new_name,digest) in enumerate(rows,1):
+        report(progress,'核對搬移後舊檔',index,len(rows))
         old=Path(old_name);new=Path(new_name)
         if str(old.resolve()).casefold() in protected:retained+=1;continue
         try:
@@ -87,7 +95,7 @@ def cleanup_moved_copies(db_path):
             if old.is_symlink() or new.is_symlink():retained+=1;continue
             if old.exists():
                 before=old.stat()
-                if not new.is_file() or file_hash(old)!=digest or file_hash(new)!=digest:retained+=1;continue
+                if not new.is_file() or tracked_hash(file_hash,old,progress,'清理前複核舊檔',index,len(rows))!=digest or tracked_hash(file_hash,new,progress,'清理前複核新檔',index,len(rows))!=digest:retained+=1;continue
                 after=old.stat()
                 if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):retained+=1;continue
                 old.unlink();removed+=1;freed+=before.st_size

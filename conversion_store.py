@@ -6,14 +6,20 @@ import threading
 import time
 import uuid
 import re
+from operation_progress import report,tracked_hash
 from pathlib import Path
 from contextlib import contextmanager
 
 
-def file_hash(path):
+def file_hash(path,progress=None):
     digest=hashlib.sha256()
+    size=Path(path).stat().st_size;done=0;last=0
+    if progress:progress(0,size)
     with Path(path).open('rb') as stream:
-        for block in iter(lambda:stream.read(1024*1024),b''): digest.update(block)
+        for block in iter(lambda:stream.read(1024*1024),b''):
+            digest.update(block);done+=len(block)
+            if progress and time.monotonic()-last>=.15:progress(done,size);last=time.monotonic()
+    if progress:progress(done,size)
     return digest.hexdigest()
 
 
@@ -85,14 +91,14 @@ class ConversionStore:
         row=self.get(key); path=Path(row['saved_path'] or row['output_path'])
         if not path.is_file(): raise ValueError('成品已不存在，請重新轉檔。')
         return path
-    def confirm(self,key):
+    def confirm(self,key,progress=None):
         with self.lock:
             row=self.get(key)
             if row['status']=='replaced': return
             source=Path(row['source_path']); output=self.review_path(key)
             if source.exists() or not row['saved_path']: self.check_source(row,source)
             if row['saved_sha']:
-                if file_hash(output)!=row['saved_sha']: raise ValueError('保留的MP4已變更，請重新檢查。')
+                if tracked_hash(file_hash,output,progress,'確認已保存成品')!=row['saved_sha']: raise ValueError('保留的MP4已變更，請重新檢查。')
             else: self.check_output(row,output)
             with self.db() as db:
                 db.execute('UPDATE conversion_records SET status=?,confirmed_at=?,updated=? WHERE id=?',
@@ -109,7 +115,7 @@ class ConversionStore:
         stamp=output.stat()
         if (stamp.st_size,stamp.st_mtime_ns)!=(row['output_size'],row['output_mtime']):
             raise ValueError('成品已變更，請重新轉檔確認；不執行刪除。')
-    def promote(self,key,recycler=recycle_file):
+    def promote(self,key,recycler=recycle_file,progress=None):
         with self.lock:
             row=self.get(key)
             if row['status']=='replaced': return Path(row['saved_path'])
@@ -119,7 +125,7 @@ class ConversionStore:
             # A previously saved copy survives a failed recycle operation or a restart.
             if row['saved_path']:
                 destination=Path(row['saved_path'])
-                if not destination.is_file() or file_hash(destination)!=row['saved_sha']:
+                if not destination.is_file() or tracked_hash(file_hash,destination,progress,'驗證保存MP4')!=row['saved_sha']:
                     raise ValueError('保留的MP4不存在或已變更，原檔不會刪除。')
             else:
                 self.check_source(row,source); output=Path(row['output_path']); self.check_output(row,output)
@@ -130,10 +136,13 @@ class ConversionStore:
                 try:
                     digest=hashlib.sha256()
                     with output.open('rb') as reader,temporary.open('xb') as writer:
-                        for block in iter(lambda:reader.read(1024*1024),b''): writer.write(block); digest.update(block)
+                        done=0;size=output.stat().st_size
+                        for block in iter(lambda:reader.read(1024*1024),b''):
+                            writer.write(block); digest.update(block);done+=len(block)
+                            report(progress,'保存MP4',done=done,size=size)
                         writer.flush(); os.fsync(writer.fileno())
                     self.check_source(row,source); self.check_output(row,output)
-                    if file_hash(temporary)!=digest.hexdigest(): raise ValueError('MP4副本驗證失敗；原檔未刪除。')
+                    if tracked_hash(file_hash,temporary,progress,'驗證MP4副本')!=digest.hexdigest(): raise ValueError('MP4副本驗證失敗；原檔未刪除。')
                     stamp=source.stat(); os.utime(temporary,ns=(stamp.st_atime_ns,stamp.st_mtime_ns))
                     try: os.link(temporary,destination)
                     except OSError:
@@ -145,13 +154,14 @@ class ConversionStore:
                     row=self.get(key)
                 finally:
                     temporary.unlink(missing_ok=True)
-            if destination.is_symlink() or file_hash(destination)!=row['saved_sha']:
+            if destination.is_symlink() or tracked_hash(file_hash,destination,progress,'驗證保存MP4')!=row['saved_sha']:
                 raise ValueError('保存的MP4驗證失敗；原檔與快取保留。')
             if source.exists():
                 self.check_source(row,source)
+                report(progress,'回收原檔')
                 recycler(source)
                 if source.exists(): raise OSError('原檔仍存在；MP4已保留，未標記為完成。')
-            if not destination.is_file() or file_hash(destination)!=row['saved_sha']:
+            if not destination.is_file() or tracked_hash(file_hash,destination,progress,'驗證保存MP4')!=row['saved_sha']:
                 raise ValueError('保存的MP4已變更；快取與記錄保留。')
             episode=row['episode_id'] or hashlib.sha256(str(source.resolve()).casefold().encode()).hexdigest()[:24]
             with self.db() as db:
@@ -160,11 +170,12 @@ class ConversionStore:
                 db.execute('INSERT OR REPLACE INTO cache_copies VALUES(?,?,?)',(row['output_path'],str(destination),row['saved_sha']))
                 db.execute('DELETE FROM conversion_records WHERE id=?',(key,))
             # Failure to clean a duplicate must never undo successful preservation.
-            try:self.cleanup_cache(Path(row['output_path']).parent,only_path=row['output_path'])
+            try:self.cleanup_cache(Path(row['output_path']).parent,only_path=row['output_path'],progress=progress)
             except (OSError,sqlite3.Error,ValueError,RuntimeError):pass
             return destination
-    def cleanup_cache(self,directory,legacy=False,only_path=None):
+    def cleanup_cache(self,directory,legacy=False,only_path=None,progress=None):
         """Delete only generated cache with a second verified, saved copy."""
+        report(progress,'盤點重複快取')
         directory=Path(directory).resolve(); freed=count=0; retained=0
         with self.lock:
             with self.db() as db:
@@ -179,21 +190,24 @@ class ConversionStore:
                         if saved.is_file() and not saved.is_symlink():by_size.setdefault(saved.stat().st_size,[]).append(saved)
                     except OSError:pass
                 hashes={}
-                for cache in directory.iterdir():
+                candidates_list=list(directory.iterdir())
+                for index,cache in enumerate(candidates_list,1):
+                    report(progress,'比對舊版快取',index,len(candidates_list))
                     if not re.fullmatch(r'[0-9a-fA-F]{64}\.mp4',cache.name) or str(cache) in copies:continue
                     if str(cache.resolve()).casefold() in protected or cache.is_symlink() or not cache.is_file():continue
                     try:
                         candidates=by_size.get(cache.stat().st_size,[])
                         if not candidates:continue
-                        digest=file_hash(cache)
+                        digest=tracked_hash(file_hash,cache,progress,'核對快取',index,len(candidates_list))
                         for saved in candidates:
-                            if saved not in hashes:hashes[saved]=file_hash(saved)
+                            if saved not in hashes:hashes[saved]=tracked_hash(file_hash,saved,progress,'核對保存副本',index,len(candidates_list))
                             if hashes[saved]==digest:
                                 copies[str(cache)]=(str(saved),digest)
                                 with self.db() as db:db.execute('INSERT OR REPLACE INTO cache_copies VALUES(?,?,?)',(str(cache),str(saved),digest))
                                 break
                     except OSError:continue
-            for name,(saved_name,digest) in copies.items():
+            for index,(name,(saved_name,digest)) in enumerate(copies.items(),1):
+                report(progress,'驗證並清理快取',index,len(copies))
                 cache=Path(name);saved=Path(saved_name)
                 if only_path is not None and str(cache)!=str(only_path):continue
                 if cache.parent.resolve()!=directory or not re.fullmatch(r'[0-9a-fA-F]{64}\.mp4',cache.name):continue
@@ -202,7 +216,7 @@ class ConversionStore:
                     if not cache.exists():continue
                     if cache.is_symlink() or saved.is_symlink() or cache.resolve()==saved.resolve():continue
                     before=cache.stat()
-                    if not saved.is_file() or file_hash(saved)!=digest or file_hash(cache)!=digest:
+                    if not saved.is_file() or tracked_hash(file_hash,saved,progress,'複核保存副本',index,len(copies))!=digest or tracked_hash(file_hash,cache,progress,'複核快取',index,len(copies))!=digest:
                         retained+=1;continue
                     after=cache.stat()
                     if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):retained+=1;continue
@@ -223,8 +237,8 @@ class ConversionStore:
 
 class AutoPromoter:
     """Session-only opt-in; failed snapshots wait for explicit retry."""
-    def __init__(self,store,on_success,log,recycler=recycle_file):
-        self.store=store; self.on_success=on_success; self.log=log; self.recycler=recycler
+    def __init__(self,store,on_success,log,recycler=recycle_file,progress=None):
+        self.store=store; self.on_success=on_success; self.log=log; self.recycler=recycler;self.progress=progress
         self.lock=threading.RLock(); self.enabled=False; self.busy=False
         self.failed={}; self.stop_event=threading.Event(); self.worker=None
         self.completed=0; self.errors=0
@@ -246,8 +260,8 @@ class AutoPromoter:
                 if self.failed.get(row['id'])==stamp: continue
                 self.busy=True
             try:
-                self.store.confirm(row['id'])
-                self.store.promote(row['id'],recycler=self.recycler)
+                self.store.confirm(row['id'],progress=self.progress)
+                self.store.promote(row['id'],recycler=self.recycler,progress=self.progress)
                 success+=1; self.completed+=1
             except Exception:
                 self.failed[row['id']]=stamp; self.errors+=1
