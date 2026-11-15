@@ -8,7 +8,7 @@
 | cinema.py | Tk 後台、系統列、單一執行、掃描、SQLite、HTTP API、串流、轉檔與操作視窗 |
 | source_groups.py | 群組 CRUD／排序／目錄歸屬、分類與群組影片標籤、代表圖、管理視窗 |
 | group_access.py | 密碼雜湊、瀏覽器解鎖 session、群組可見範圍與媒體讀取判斷 |
-| playback_storage.py | 可選快取目錄、逐檔驗證搬移與轉檔記錄位置同步 |
+| playback_storage.py | 可選快取目錄、二次驗證搬移、空間統計與低空間停止轉檔 |
 | conversion_store.py | 人工確認、MP4 副本驗證、原檔回收、持久識別別名 |
 | source_help.py | 目錄／平鋪片單圖解視窗 |
 | index.html | 前端完整 UI、播放器、Short、隱蔽與群組選擇 |

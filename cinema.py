@@ -4,7 +4,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from contextlib import contextmanager
 from conversion_store import ConversionStore,AutoPromoter
-from playback_storage import playback_directory,relocate_playback
+from playback_storage import playback_directory,relocate_playback,cache_usage,wait_for_conversion,cleanup_moved_copies
 from source_groups import SourceGroups,open_group_manager,DEFAULT_GROUP
 from source_help import open_source_help
 from version import APP_VERSION
@@ -201,6 +201,17 @@ class Library:
             return result
         finally:
             with self.lock: self.cache_migrating=False
+    def cleanup_playback(self):
+        with self.lock:
+            if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
+                raise ValueError('請停止服務與背景作業，等候轉檔完成後再清理。')
+            self.cache_migrating=True
+        try:
+            moved=cleanup_moved_copies(self.db_path)
+            result=self.conversion_store.cleanup_cache(self.playback_dir,legacy=True)
+            return {key:result[key]+moved[key] for key in ('removed','bytes','retained')}
+        finally:
+            with self.lock:self.cache_migrating=False
     def register_conversion(self,key,source,target):
         item_id=episode_id=title=None
         with self.lock:
@@ -289,9 +300,11 @@ class Library:
                 with self.lock:
                     if self.closing: return
                     self.conversions[key]={'state':'converting','message':'正在製作相容播放檔，完成後自動播放；首次轉換可能較久。'}
+                    if shutil.disk_usage(self.playback_dir).free<512*1024*1024:
+                        raise OSError('快取空間不足，請先清理或搬移快取。')
                     self.convert_process=subprocess.Popen([self.ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-i',str(source),'-map','0:v:0','-map','0:a:0?','-sn','-dn','-vf','scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p','-c:v','libx264','-preset','veryfast','-crf','22','-c:a','aac','-b:a','160k','-ac','2','-movflags','+faststart','-threads','2','-y',str(temporary)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000 if os.name=='nt' else 0)
                     process=self.convert_process
-                result=process.wait()
+                result=wait_for_conversion(process,self.playback_dir,self.shutdown_event)
                 with self.lock:
                     if self.closing: return
                     if result!=0 or not temporary.is_file() or not temporary.stat().st_size: raise RuntimeError('conversion failed')
@@ -300,6 +313,11 @@ class Library:
                 self.register_conversion(key,source,target)
                 self.log('相容播放檔製作完成並保留記錄，原始影片未變更。')
             except Exception:
+                with self.lock: failed_process=self.convert_process
+                if failed_process and failed_process.poll() is None:
+                    failed_process.terminate()
+                    try:failed_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:failed_process.kill();failed_process.wait(timeout=5)
                 with self.lock: self.conversions[key]={'state':'error','message':'無法轉換此影片；來源可能損壞、受保護或使用不支援的編碼。'}
                 self.log('相容播放檔製作失敗；未變更原始影片。')
             finally:
@@ -567,7 +585,62 @@ def make_handler(lib):
             except (ValueError,KeyError,TypeError): self.reply(400,{'error':'資料格式錯誤'})
     return Handler
 
-def open_conversion_records(root,lib,log):
+def build_cache_controls(parent,root,lib,service_running):
+    cache_row=ttk.Frame(parent); cache_row.pack(fill='x',padx=20,pady=(8,4))
+    cache_text=tk.StringVar(value='轉檔快取目錄：'+str(lib.playback_dir))
+    ttk.Label(cache_row,textvariable=cache_text,wraplength=900).pack(anchor='w',fill='x')
+    cache_results=queue.Queue()
+    def choose_cache():
+        if service_running() or lib.cache_migrating or getattr(root,'cache_move_busy',False) or getattr(root,'conversion_busy',False):
+            messagebox.showinfo('請先停止服務','請停止服務並等候保存作業完成後再搬移快取。',parent=root); return
+        folder=filedialog.askdirectory(title='選擇轉檔快取目錄（搬移既有快取）',parent=root)
+        if not folder:return
+        cache_button['state']='disabled'; root.cache_move_busy=True
+        cache_text.set('正在搬移與驗證快取，請勿關閉程式…')
+        def worker():
+            try: cache_results.put((lib.relocate_playback(folder),None))
+            except Exception as error: cache_results.put((None,str(error)))
+        threading.Thread(target=worker,daemon=True).start()
+        def finish():
+            if cache_results.empty(): root.after(200,finish); return
+            result,error=cache_results.get(); root.cache_move_busy=False; cache_button['state']='normal'
+            cache_text.set('轉檔快取目錄：'+str(lib.playback_dir))
+            if error:messagebox.showerror('未完成搬移',error,parent=root)
+            else:messagebox.showinfo('快取目錄已更新',f"已搬移並驗證 {result['moved']} 個快取。\n舊目錄保留 {result['retained']} 個未能清理的快取。\n後續轉檔將使用新目錄。",parent=root)
+        root.after(200,finish)
+    cache_button=ttk.Button(cache_row,text='選擇目錄並搬移快取',command=choose_cache); cache_button.pack(anchor='w',pady=(6,0))
+    space_row=ttk.Frame(parent);space_row.pack(fill='x',padx=20,pady=4)
+    space_text=tk.StringVar(value='快取空間：按「檢查空間」更新')
+    ttk.Label(space_row,textvariable=space_text,wraplength=420).pack(side='left',fill='x',expand=True)
+    def check_space():
+        try:
+            usage=cache_usage(lib.playback_dir)
+            space_text.set(f"快取 {usage['files']} 個 · {usage['bytes']/1024**3:.2f} GB；磁碟可用 {usage['free']/1024**3:.2f} GB")
+        except OSError:space_text.set('目前無法取得快取磁碟空間。')
+    def clean_cache():
+        if service_running() or getattr(root,'cache_move_busy',False) or getattr(root,'conversion_busy',False):
+            messagebox.showinfo('請先停止服務','請停止服務並等候保存或搬移作業完成。',parent=root);return
+        root.cache_move_busy=True;clean_button['state']='disabled';cache_button['state']='disabled'
+        space_text.set('正在核對已保存的副本；無法確認的快取將保留…')
+        result_queue=queue.Queue()
+        def worker():
+            try:result_queue.put((lib.cleanup_playback(),None))
+            except Exception as error:result_queue.put((None,str(error)))
+        threading.Thread(target=worker,daemon=True).start()
+        def finish():
+            if result_queue.empty():root.after(200,finish);return
+            result,error=result_queue.get();root.cache_move_busy=False
+            clean_button['state']='normal';cache_button['state']='normal';check_space()
+            if error:messagebox.showerror('清理未完成',error,parent=root)
+            else:messagebox.showinfo('安全清理完成',f"已清理 {result['removed']} 個重複快取，釋放 {result['bytes']/1024**3:.2f} GB。\n無法驗證或仍待處理的快取不會刪除。",parent=root)
+        root.after(200,finish)
+    ttk.Button(space_row,text='檢查空間',command=check_space).pack(side='right',padx=4)
+    clean_button=ttk.Button(space_row,text='清理已保存的重複快取',command=clean_cache);clean_button.pack(side='right',padx=4)
+    ttk.Label(parent,text='需先停止服務、關閉背景預轉與略過人工審核，並等候轉檔完成。僅搬移已完成快取；驗證後才清理舊檔，原始影片不搬移。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
+
+
+
+def open_conversion_records(root,lib,log,service_running=lambda:False):
     if lib.cache_migrating:
         messagebox.showinfo('正在搬移','請等待快取搬移完成。',parent=root); return
     previous=getattr(root,'conversion_window',None)
@@ -576,9 +649,13 @@ def open_conversion_records(root,lib,log):
     window.title('轉檔記錄｜保留MP4'); window.configure(bg='#171817')
     available_w=max(320,root.winfo_screenwidth()-60); available_h=max(320,root.winfo_screenheight()-100)
     window.geometry(f'{min(1100,available_w)}x{min(680,available_h)}'); window.minsize(min(760,available_w),min(480,available_h))
-    ttk.Label(window,text='先開啟成品檢查 → 標記已確認 → 保留MP4並回收原檔',font=('Microsoft JhengHei UI',14)).pack(anchor='w',padx=16,pady=12)
-    ttk.Label(window,text='手動模式只處理選取且已確認的記錄。勾選略過人工審核後，自動處理全部完成項目；先保存、驗證，再回收原檔，不覆蓋同名檔。',wraplength=1040).pack(anchor='w',padx=16)
-    frame=ttk.Frame(window); frame.pack(fill='both',expand=True,padx=16,pady=10)
+    notebook=ttk.Notebook(window);notebook.pack(fill='both',expand=True,padx=8,pady=8)
+    records_page=ttk.Frame(notebook);storage_page=ttk.Frame(notebook)
+    notebook.add(records_page,text='轉檔記錄');notebook.add(storage_page,text='快取與空間')
+    ttk.Label(records_page,text='先開啟成品檢查 → 標記已確認 → 保留MP4並回收原檔',font=('Microsoft JhengHei UI',14)).pack(anchor='w',padx=16,pady=12)
+    ttk.Label(records_page,text='手動模式只處理選取且已確認的記錄。勾選略過人工審核後，自動處理全部完成項目；先保存、驗證，再回收原檔，不覆蓋同名檔。',wraplength=1040).pack(anchor='w',padx=16)
+    build_cache_controls(storage_page,root,lib,service_running)
+    frame=ttk.Frame(records_page); frame.pack(fill='both',expand=True,padx=16,pady=10)
     tree=ttk.Treeview(frame,columns=('status','name','source','output'),show='headings',selectmode='extended')
     for key,label,width in [('status','狀態',125),('name','影片',210),('source','原檔位置',380),('output','成品／保留MP4位置',380)]:
         tree.heading(key,text=label); tree.column(key,width=width,minwidth=80,stretch=False)
@@ -586,9 +663,9 @@ def open_conversion_records(root,lib,log):
     tree.configure(yscrollcommand=vertical.set,xscrollcommand=horizontal.set)
     tree.grid(row=0,column=0,sticky='nsew'); vertical.grid(row=0,column=1,sticky='ns'); horizontal.grid(row=1,column=0,sticky='ew')
     frame.rowconfigure(0,weight=1); frame.columnconfigure(0,weight=1)
-    details=tk.Text(window,height=4,wrap='word',bg='#1b221d',fg='#d8e5d9',state='disabled'); details.pack(fill='x',padx=16)
-    state=tk.StringVar(value='待處理與失敗項目會保留；保存MP4並成功回收原檔後，自動移除該筆記錄。'); ttk.Label(window,textvariable=state,wraplength=1040).pack(anchor='w',padx=16,pady=7)
-    buttons=ttk.Frame(window); buttons.pack(fill='x',padx=16,pady=(0,14))
+    details=tk.Text(records_page,height=4,wrap='word',bg='#1b221d',fg='#d8e5d9',state='disabled'); details.pack(fill='x',padx=16)
+    state=tk.StringVar(value='待處理與失敗項目會保留；保存MP4並成功回收原檔後，自動移除該筆記錄。'); ttk.Label(records_page,textvariable=state,wraplength=1040).pack(anchor='w',padx=16,pady=7)
+    buttons=ttk.Frame(records_page); buttons.pack(fill='x',padx=16,pady=(0,14))
     rows={}; busy=False; results=queue.Queue()
     auto_mode=tk.BooleanVar(value=lib.auto_promoter.enabled)
     names={'ready':'待人工檢查','confirmed':'已確認','saved':'MP4已保存／待回收','replaced':'僅保留MP4'}
@@ -668,7 +745,7 @@ def open_conversion_records(root,lib,log):
     auto_check=ttk.Checkbutton(buttons,text='略過人工審核',variable=auto_mode,command=toggle_auto); auto_check.pack(side='left',padx=12)
     tree.bind('<<TreeviewSelect>>',selection_changed)
     def close():
-        if busy: messagebox.showinfo('仍在處理','請等待目前操作完成，避免中斷保存。',parent=window)
+        if busy or getattr(root,'cache_move_busy',False): messagebox.showinfo('仍在處理','請等待目前操作完成，避免中斷保存。',parent=window)
         else: window.destroy()
     window.protocol('WM_DELETE_WINDOW',close); refresh(); pump_results()
 
@@ -825,33 +902,8 @@ def _run(instance):
             background_var.set(lib.background_enabled); return
         lib.set_background(background_var.get())
     ttk.Checkbutton(background_row,text='背景預先轉檔（使用CPU與磁碟空間）',variable=background_var,command=toggle_background).pack(side='left')
-    ttk.Button(background_row,text='轉檔記錄／人工檢查',command=lambda:open_conversion_records(root,lib,events.put)).pack(side='left',padx=12)
+    ttk.Button(background_row,text='轉檔記錄／人工檢查',command=lambda:open_conversion_records(root,lib,events.put,lambda:server is not None)).pack(side='left',padx=12)
     ttk.Label(content,text='掃描後自動排程非MP4／M4V／WebM影片；每次一支，已完成快取會跳過。取消勾選暫停後續排程。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
-    cache_row=ttk.Frame(content); cache_row.pack(fill='x',padx=20,pady=(8,4))
-    cache_text=tk.StringVar(value='轉檔快取目錄：'+str(lib.playback_dir))
-    ttk.Label(cache_row,textvariable=cache_text,wraplength=600).pack(side='left',fill='x',expand=True)
-    cache_results=queue.Queue()
-    def choose_cache():
-        if server is not None or lib.cache_migrating or getattr(root,'conversion_busy',False):
-            messagebox.showinfo('請先停止服務','請停止服務並等候保存作業完成後再搬移快取。',parent=root); return
-        folder=filedialog.askdirectory(title='選擇轉檔快取目錄（搬移既有快取）',parent=root)
-        if not folder:return
-        cache_button['state']='disabled'; root.cache_move_busy=True
-        cache_text.set('正在搬移與驗證快取，請勿關閉程式…')
-        def worker():
-            try: cache_results.put((lib.relocate_playback(folder),None))
-            except Exception as error: cache_results.put((None,str(error)))
-        threading.Thread(target=worker,daemon=True).start()
-        def finish():
-            if cache_results.empty(): root.after(200,finish); return
-            result,error=cache_results.get(); root.cache_move_busy=False; cache_button['state']='normal'
-            cache_text.set('轉檔快取目錄：'+str(lib.playback_dir))
-            if error:messagebox.showerror('未完成搬移',error,parent=root)
-            else:messagebox.showinfo('快取目錄已更新',f"已搬移並驗證 {result['moved']} 個快取。\n舊目錄保留 {result['retained']} 個未能清理的快取。\n後續轉檔將使用新目錄。",parent=root)
-        root.after(200,finish)
-    cache_button=ttk.Button(cache_row,text='選擇目錄並搬移快取',command=choose_cache); cache_button.pack(side='right',padx=8)
-    ttk.Label(content,text='需先停止服務、關閉背景預轉與略過人工審核，並等候轉檔完成。僅搬移已完成快取；驗證後才清理舊檔，原始影片不搬移。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
-
     conversion_text=tk.StringVar(value='背景預轉尚未排程')
     ttk.Label(content,textvariable=conversion_text,wraplength=800).pack(anchor='w',padx=20,pady=(5,2))
     conversion_progress=ttk.Progressbar(content,mode='determinate',maximum=100)

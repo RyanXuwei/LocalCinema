@@ -237,6 +237,80 @@ class CoreTests(unittest.TestCase):
         auto=AutoPromoter(store,lambda:None,lambda text:None,recycler)
         auto.enabled=True;auto.process_pending()
         self.assertEqual(auto.completed,1);self.assertEqual(len(store.records()),1);auto.close()
+    def test_promote_releases_only_verified_generated_cache(self):
+        store=ConversionStore(self.root/'release.db');cache_dir=self.root/'playback';cache_dir.mkdir()
+        cache=cache_dir/('f'*64+'.mp4');cache.write_bytes(b'converted bytes')
+        source=self.root/'source.flv';source.write_bytes(b'original bytes')
+        store.register('f'*64,source,cache,'item','episode','Fixture');store.confirm('f'*64)
+        saved=store.promote('f'*64,recycler=lambda path:path.rename(self.root/'recycled.flv'))
+        self.assertEqual(saved.read_bytes(),b'converted bytes');self.assertFalse(cache.exists())
+        with store.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM media_replacements').fetchone()[0],1)
+    def test_cache_cleanup_retains_damaged_saved_and_untracked_files(self):
+        from conversion_store import file_hash
+        store=ConversionStore(self.root/'clean.db');folder=self.root/'cache';folder.mkdir()
+        cache=folder/('a'*64+'.mp4');cache.write_bytes(b'complete')
+        saved=self.root/'saved.mp4';saved.write_bytes(b'complete');digest=file_hash(saved)
+        with store.db() as db:db.execute('INSERT INTO cache_copies VALUES(?,?,?)',(str(cache),str(saved),digest))
+        saved.write_bytes(b'corrupted')
+        self.assertEqual(store.cleanup_cache(folder)['removed'],0);self.assertTrue(cache.exists())
+        saved.write_bytes(b'complete')
+        source=self.root/'pending.flv';source.write_bytes(b'original');store.register('pending',source,cache)
+        self.assertEqual(store.cleanup_cache(folder)['removed'],0);self.assertTrue(cache.exists())
+        with store.db() as db:db.execute('DELETE FROM conversion_records')
+        unmapped=folder/('b'*64+'.mp4');unmapped.write_bytes(b'only copy')
+        self.assertEqual(store.cleanup_cache(folder)['removed'],1)
+        self.assertTrue(unmapped.exists());self.assertEqual(saved.read_bytes(),b'complete')
+    def test_legacy_completed_cache_cleanup(self):
+        store=ConversionStore(self.root/'legacy.db');folder=self.root/'cache';folder.mkdir()
+        cache=folder/('c'*64+'.mp4');cache.write_bytes(b'matching saved copy')
+        saved=self.root/'saved.mp4';saved.write_bytes(cache.read_bytes())
+        with store.db() as db:db.execute('INSERT INTO media_replacements VALUES(?,?,?,?,?,?)',(str(saved),str(self.root/'old.flv'),'item','episode','Fixture','Episode'))
+        self.assertEqual(store.cleanup_cache(folder,legacy=True)['removed'],1)
+        self.assertFalse(cache.exists());self.assertTrue(saved.exists())
+        with store.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM media_replacements').fetchone()[0],1)
+    def test_recovery_when_recycle_completed_before_interruption(self):
+        store=ConversionStore(self.root/'recovery.db')
+        source=self.root/'source.flv';source.write_bytes(b'original')
+        cache=self.root/('d'*64+'.mp4');cache.write_bytes(b'converted')
+        store.register('recover',source,cache);store.confirm('recover')
+        def interrupted(path):path.rename(self.root/'recycled.flv');raise OSError('synthetic interruption after recycle')
+        with self.assertRaises(OSError):store.promote('recover',recycler=interrupted)
+        self.assertTrue(cache.exists());self.assertEqual(store.get('recover')['status'],'saved')
+        store.confirm('recover');saved=store.promote('recover',recycler=lambda path:self.fail('must not recycle twice'))
+        self.assertTrue(saved.exists());self.assertFalse(cache.exists());self.assertEqual(store.records(),[])
+    def test_move_journal_retains_old_until_reverified(self):
+        from unittest.mock import patch
+        from playback_storage import cleanup_moved_copies
+        old=self.root/'old';old.mkdir();new=self.root/'new';name='e'*64+'.mp4';(old/name).write_bytes(b'good')
+        lib=Library(lambda text:None,db_path=self.root/'journal.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=old)
+        try:
+            with patch('playback_storage.cleanup_moved_copies',return_value={'retained':1}):lib.relocate_playback(new)
+            self.assertTrue((old/name).exists());(new/name).write_bytes(b'bad!')
+            self.assertEqual(cleanup_moved_copies(lib.db_path)['removed'],0);self.assertTrue((old/name).exists())
+            (new/name).write_bytes(b'good')
+            self.assertEqual(cleanup_moved_copies(lib.db_path)['removed'],1)
+            self.assertFalse((old/name).exists());self.assertEqual((new/name).read_bytes(),b'good')
+        finally:lib.shutdown()
+    def test_move_second_verification_failure_keeps_old_setting(self):
+        from unittest.mock import patch
+        from conversion_store import file_hash
+        from playback_storage import playback_directory
+        old=self.root/'old';old.mkdir();new=self.root/'new';name='9'*64+'.mp4';(old/name).write_bytes(b'good')
+        lib=Library(lambda text:None,db_path=self.root/'verify.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=old)
+        try:
+            def digest(path):return 'wrong' if Path(path)==new/name else file_hash(path)
+            with patch('playback_storage.file_hash',side_effect=digest):
+                with self.assertRaises(OSError):lib.relocate_playback(new)
+            self.assertTrue((old/name).exists());self.assertEqual(playback_directory(lib.db_path,old),old)
+        finally:lib.shutdown()
+    def test_low_space_stops_conversion_without_touching_files(self):
+        from unittest.mock import Mock,patch
+        from types import SimpleNamespace
+        from playback_storage import wait_for_conversion
+        process=Mock();process.poll.return_value=None
+        with patch('playback_storage.shutil.disk_usage',return_value=SimpleNamespace(free=1)):
+            with self.assertRaises(OSError):wait_for_conversion(process,self.root,Mock())
+        process.terminate.assert_called_once();process.wait.assert_called_once_with(timeout=5)
     def test_recycle_failure_is_retryable(self):
         store=ConversionStore(self.root/'test.db');source=self.root/'test.flv';output=self.root/'cache.mp4'
         source.write_bytes(b'original');output.write_bytes(b'converted');store.register('job',source,output);store.confirm('job')

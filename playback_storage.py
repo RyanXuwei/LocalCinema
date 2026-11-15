@@ -4,6 +4,7 @@ import re
 import shutil
 import sqlite3
 import uuid
+import subprocess
 from pathlib import Path
 from contextlib import closing
 from conversion_store import file_hash
@@ -61,15 +62,64 @@ def relocate_playback(source,destination,db_path):
     # Commit paths and directory together; other library and identity data stay untouched.
     with closing(sqlite3.connect(db_path,timeout=20)) as db,db:
         for path,target,digest,size,mtime in verified:
+            if file_hash(path)!=digest or file_hash(target)!=digest:
+                raise OSError('搬移提交前二次驗證失敗；舊快取保留。')
             stamp=target.stat()
             db.execute('UPDATE conversion_records SET output_path=?,output_size=?,output_mtime=? WHERE output_path=?',
                        (str(target),stamp.st_size,stamp.st_mtime_ns,str(path)))
+            db.execute('UPDATE cache_copies SET cache_path=? WHERE cache_path=?',(str(target),str(path)))
+            db.execute('INSERT OR REPLACE INTO cache_moves VALUES(?,?,?)',(str(path),str(target),digest))
         db.execute("INSERT OR REPLACE INTO app_settings(key,value) VALUES ('playback_directory',?)",(str(destination),))
-    retained=0
-    for path,target,digest,size,mtime in verified:
+    cleanup=cleanup_moved_copies(db_path)
+    return {'moved':len(verified),'bytes':sum(row[3] for row in verified),'retained':cleanup['retained']}
+
+
+def cleanup_moved_copies(db_path):
+    removed=freed=retained=0
+    with closing(sqlite3.connect(db_path,timeout=20)) as db:
+        rows=list(db.execute('SELECT old_path,new_path,sha256 FROM cache_moves'))
+        protected={str(Path(value).resolve()).casefold() for row in db.execute('SELECT source_path,output_path,saved_path FROM conversion_records') for value in row if value}
+    for old_name,new_name,digest in rows:
+        old=Path(old_name);new=Path(new_name)
+        if str(old.resolve()).casefold() in protected:retained+=1;continue
         try:
-            stamp=path.stat()
-            if (stamp.st_size,stamp.st_mtime_ns)!=(size,mtime) or file_hash(target)!=digest: raise OSError('快取已變更')
-            path.unlink()  # Verified generated cache copy only; never source media.
-        except OSError: retained+=1
-    return {'moved':len(verified),'bytes':sum(row[3] for row in verified),'retained':retained}
+            if not CACHE_NAME.fullmatch(old.name) or old.name!=new.name or old.resolve()==new.resolve():retained+=1;continue
+            if old.is_symlink() or new.is_symlink():retained+=1;continue
+            if old.exists():
+                before=old.stat()
+                if not new.is_file() or file_hash(old)!=digest or file_hash(new)!=digest:retained+=1;continue
+                after=old.stat()
+                if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):retained+=1;continue
+                old.unlink();removed+=1;freed+=before.st_size
+            with closing(sqlite3.connect(db_path,timeout=20)) as db,db:
+                db.execute('DELETE FROM cache_moves WHERE old_path=?',(old_name,))
+        except (OSError,sqlite3.Error):retained+=1
+    return {'removed':removed,'bytes':freed,'retained':retained}
+
+
+
+def cache_usage(directory):
+    directory=Path(directory);total=count=0
+    if directory.is_dir():
+        for path in directory.iterdir():
+            if CACHE_NAME.fullmatch(path.name) and not path.is_symlink() and path.is_file():
+                try:total+=path.stat().st_size;count+=1
+                except OSError:pass
+    parent=directory
+    while not parent.exists() and parent!=parent.parent:parent=parent.parent
+    return {'bytes':total,'files':count,'free':shutil.disk_usage(parent).free}
+
+def wait_for_conversion(process,directory,stop_event,min_free=256*1024*1024):
+    def stop():
+        process.terminate()
+        try:process.wait(timeout=5)
+        except subprocess.TimeoutExpired:process.kill();process.wait(timeout=5)
+    while process.poll() is None:
+        try:free=shutil.disk_usage(directory).free
+        except OSError:
+            stop();raise
+        if free<min_free:
+            stop()
+            raise OSError('快取磁碟空間不足，已停止轉檔並保留原檔。')
+        if stop_event.wait(1):return process.wait()
+    return process.returncode

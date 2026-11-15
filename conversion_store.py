@@ -5,6 +5,7 @@ import hashlib
 import threading
 import time
 import uuid
+import re
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -41,6 +42,8 @@ class ConversionStore:
                     new_path TEXT PRIMARY KEY, old_path TEXT NOT NULL, item_id TEXT,
                     episode_id TEXT NOT NULL, title TEXT, episode_name TEXT NOT NULL);
             ''')
+            db.execute('CREATE TABLE IF NOT EXISTS cache_copies(cache_path TEXT PRIMARY KEY,saved_path TEXT NOT NULL,sha256 TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS cache_moves(old_path TEXT PRIMARY KEY,new_path TEXT NOT NULL,sha256 TEXT NOT NULL)')
             # Completed audit rows are disposable; playback identity aliases remain.
             db.execute("DELETE FROM conversion_records WHERE status='replaced'")
     @contextmanager
@@ -87,7 +90,7 @@ class ConversionStore:
             row=self.get(key)
             if row['status']=='replaced': return
             source=Path(row['source_path']); output=self.review_path(key)
-            self.check_source(row,source)
+            if source.exists() or not row['saved_path']: self.check_source(row,source)
             if row['saved_sha']:
                 if file_hash(output)!=row['saved_sha']: raise ValueError('保留的MP4已變更，請重新檢查。')
             else: self.check_output(row,output)
@@ -102,7 +105,7 @@ class ConversionStore:
             raise ValueError('原檔在轉檔後已變更，請重新轉檔確認；不執行刪除。')
     @staticmethod
     def check_output(row,output):
-        if not output.is_file(): raise ValueError('轉檔成品不存在。')
+        if not output.is_file() or output.is_symlink(): raise ValueError('轉檔成品不存在或為符號連結。')
         stamp=output.stat()
         if (stamp.st_size,stamp.st_mtime_ns)!=(row['output_size'],row['output_mtime']):
             raise ValueError('成品已變更，請重新轉檔確認；不執行刪除。')
@@ -142,16 +145,70 @@ class ConversionStore:
                     row=self.get(key)
                 finally:
                     temporary.unlink(missing_ok=True)
+            if destination.is_symlink() or file_hash(destination)!=row['saved_sha']:
+                raise ValueError('保存的MP4驗證失敗；原檔與快取保留。')
             if source.exists():
                 self.check_source(row,source)
                 recycler(source)
                 if source.exists(): raise OSError('原檔仍存在；MP4已保留，未標記為完成。')
+            if not destination.is_file() or file_hash(destination)!=row['saved_sha']:
+                raise ValueError('保存的MP4已變更；快取與記錄保留。')
             episode=row['episode_id'] or hashlib.sha256(str(source.resolve()).casefold().encode()).hexdigest()[:24]
             with self.db() as db:
                 db.execute('INSERT OR REPLACE INTO media_replacements VALUES(?,?,?,?,?,?)',
                            (str(destination.resolve()).casefold(),str(source),row['item_id'] or episode,episode,row['title'] or source.stem,source.stem))
+                db.execute('INSERT OR REPLACE INTO cache_copies VALUES(?,?,?)',(row['output_path'],str(destination),row['saved_sha']))
                 db.execute('DELETE FROM conversion_records WHERE id=?',(key,))
+            # Failure to clean a duplicate must never undo successful preservation.
+            try:self.cleanup_cache(Path(row['output_path']).parent,only_path=row['output_path'])
+            except (OSError,sqlite3.Error,ValueError,RuntimeError):pass
             return destination
+    def cleanup_cache(self,directory,legacy=False,only_path=None):
+        """Delete only generated cache with a second verified, saved copy."""
+        directory=Path(directory).resolve(); freed=count=0; retained=0
+        with self.lock:
+            with self.db() as db:
+                protected={str(Path(value).resolve()).casefold() for row in db.execute('SELECT source_path,output_path,saved_path FROM conversion_records') for value in row if value}
+                copies={r[0]:(r[1],r[2]) for r in db.execute('SELECT cache_path,saved_path,sha256 FROM cache_copies')}
+                aliases=[Path(r[0]) for r in db.execute('SELECT new_path FROM media_replacements')] if legacy else []
+            if legacy and directory.is_dir():
+                # Hash only candidates of matching size, and each saved copy once.
+                by_size={}
+                for saved in aliases:
+                    try:
+                        if saved.is_file() and not saved.is_symlink():by_size.setdefault(saved.stat().st_size,[]).append(saved)
+                    except OSError:pass
+                hashes={}
+                for cache in directory.iterdir():
+                    if not re.fullmatch(r'[0-9a-fA-F]{64}\.mp4',cache.name) or str(cache) in copies:continue
+                    if str(cache.resolve()).casefold() in protected or cache.is_symlink() or not cache.is_file():continue
+                    try:
+                        candidates=by_size.get(cache.stat().st_size,[])
+                        if not candidates:continue
+                        digest=file_hash(cache)
+                        for saved in candidates:
+                            if saved not in hashes:hashes[saved]=file_hash(saved)
+                            if hashes[saved]==digest:
+                                copies[str(cache)]=(str(saved),digest)
+                                with self.db() as db:db.execute('INSERT OR REPLACE INTO cache_copies VALUES(?,?,?)',(str(cache),str(saved),digest))
+                                break
+                    except OSError:continue
+            for name,(saved_name,digest) in copies.items():
+                cache=Path(name);saved=Path(saved_name)
+                if only_path is not None and str(cache)!=str(only_path):continue
+                if cache.parent.resolve()!=directory or not re.fullmatch(r'[0-9a-fA-F]{64}\.mp4',cache.name):continue
+                if str(cache.resolve()).casefold() in protected:continue
+                try:
+                    if not cache.exists():continue
+                    if cache.is_symlink() or saved.is_symlink() or cache.resolve()==saved.resolve():continue
+                    before=cache.stat()
+                    if not saved.is_file() or file_hash(saved)!=digest or file_hash(cache)!=digest:
+                        retained+=1;continue
+                    after=cache.stat()
+                    if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns):retained+=1;continue
+                    cache.unlink();freed+=before.st_size;count+=1
+                except OSError:retained+=1
+        return {'removed':count,'bytes':freed,'retained':retained}
     def apply_aliases(self,items):
         with self.db() as db: aliases={row['new_path']:dict(row) for row in db.execute('SELECT * FROM media_replacements')}
         for item in items:
@@ -179,6 +236,8 @@ class AutoPromoter:
                 if self.worker is None:
                     self.worker=threading.Thread(target=self.run,daemon=True); self.worker.start()
     def process_pending(self):
+        with self.lock:
+            if not self.enabled or self.stop_event.is_set():return
         success=0
         for row in self.store.records():
             stamp=tuple(row[k] for k in ('source_size','source_mtime','output_size','output_mtime'))
