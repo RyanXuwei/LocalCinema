@@ -159,6 +159,22 @@ class CoreTests(unittest.TestCase):
             request('POST','/api/groups/page-close',{'page':first},cookie);self.assertEqual(request('GET','/media/episode',cookie=cookie)[0],200)
             request('POST','/api/groups/page-close',{'page':second},cookie);self.assertEqual(request('GET','/media/episode',cookie=cookie)[0],404)
         finally:server.shutdown();server.server_close();lib.shutdown()
+    def test_generated_poster_uses_ten_percent_frame(self):
+        import subprocess
+        from cinema import cache_video_poster
+        from PIL import Image
+        lib=Library(lambda text:None,db_path=self.root/'poster.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=self.root/'cache')
+        if not lib.ffmpeg:lib.shutdown();self.skipTest('FFmpeg unavailable')
+        video=self.root/'synthetic.avi';poster=self.root/'poster.jpg'
+        try:
+            run=subprocess.run([lib.ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=red:s=80x60:r=5:d=3','-f','lavfi','-i','color=c=blue:s=80x60:r=5:d=17','-filter_complex','[0:v][1:v]concat=n=2:v=1:a=0[v]','-map','[v]','-c:v','mpeg4',str(video)],capture_output=True,timeout=20,creationflags=0x08000000 if os.name=='nt' else 0)
+            self.assertEqual(run.returncode,0)
+            self.assertTrue(cache_video_poster(lib.ffmpeg,video,poster))
+            with Image.open(poster) as image:
+                red,green,blue=image.convert('RGB').getpixel((image.width//2,image.height//2))
+            self.assertGreater(red,180);self.assertLess(blue,70)
+            self.assertFalse(list(self.root.glob('*.tmp.jpg')))
+        finally:lib.shutdown()
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:

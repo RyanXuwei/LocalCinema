@@ -83,6 +83,24 @@ def size_window(window,records=False):
     window.minsize(min_w,min_h)
     return width,height
 
+def cache_video_poster(ffmpeg,video,cache):
+    flags=0x08000000 if os.name=='nt' else 0
+    try:
+        metadata=subprocess.run([ffmpeg,'-nostdin','-hide_banner','-i',str(video)],capture_output=True,timeout=15,creationflags=flags)
+        duration=parse_duration(metadata.stderr.decode('utf-8',errors='replace'))
+    except (OSError,subprocess.TimeoutExpired):duration=None
+    position=duration*.1 if duration else 0
+    temporary=cache.with_name(cache.stem+'.'+secrets.token_hex(6)+'.tmp.jpg')
+    try:
+        result=subprocess.run([ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-ss',f'{position:.6f}','-i',str(video),'-frames:v','1','-vf','scale=640:-1','-y',str(temporary)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45,creationflags=flags)
+        if result.returncode!=0 or not temporary.is_file():return False
+        from PIL import Image
+        with Image.open(temporary) as image:image.verify()
+        temporary.replace(cache)
+        return True
+    except (OSError,ValueError,subprocess.TimeoutExpired):return False
+    finally:temporary.unlink(missing_ok=True)
+
 class SingleInstance:
     """OS-owned handles release automatically when the process exits or crashes."""
     def __init__(self,name=None):
@@ -488,11 +506,8 @@ class Library:
                 if self.processing_paused or self.closing:break
                 if item['picture'] or not self.ffmpeg: continue
                 video=Path(item['episodes'][0]['path'])
-                cache=CACHE/(identity(video)+'-'+str(video.stat().st_mtime_ns)+'.jpg')
-                if not cache.exists():
-                    for position in ('5','0'):
-                        result=subprocess.run([self.ffmpeg,'-hide_banner','-loglevel','error','-ss',position,'-i',str(video),'-frames:v','1','-vf','scale=640:-1','-y',str(cache)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000 if os.name=='nt' else 0,timeout=45)
-                        if result.returncode==0 and cache.exists(): break
+                cache=CACHE/('frame10-v1-'+identity(video)+'-'+str(video.stat().st_mtime_ns)+'.jpg')
+                if not cache.exists():cache_video_poster(self.ffmpeg,video,cache)
                 if cache.exists():
                     with self.lock:
                         self.pictures[item['id']]=cache; self.revision+=1
