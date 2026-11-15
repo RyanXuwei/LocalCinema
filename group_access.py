@@ -1,8 +1,8 @@
 """Per-browser hidden-channel access, separate from LAN admission."""
-import hashlib,secrets,time,threading
+import hashlib,secrets,time,threading,re
 from http.cookies import SimpleCookie
 class GroupAccess:
-    def __init__(self,groups):self.groups=groups;self.sessions={};self.failures={};self.lock=threading.RLock()
+    def __init__(self,groups):self.groups=groups;self.sessions={};self.browser_pages={};self.failures={};self.lock=threading.RLock()
     def configure(self,group_id,hidden,password=''):
         group=self.groups.get(group_id)
         if password:
@@ -12,19 +12,49 @@ class GroupAccess:
         if hidden and not group.get('password_hash'):raise ValueError('啟用隱藏前請先設定密碼。')
         group['hidden']=bool(hidden);group['access_revision']=secrets.token_hex(16)
         self.groups.save(self.groups.config)
+    def session(self,token):
+        session=self.sessions.get(token);now=time.time()
+        if session and self.groups.config.get('lock_on_page_close',False):
+            pages=self.browser_pages.get(session.get('browser'),session.get('pages',{}))
+            session['pages']={page:seen for page,seen in pages.items() if now-seen<=90}
+            if session.get('browser'):self.browser_pages[session['browser']]=session['pages']
+            if not session['pages']:self.sessions.pop(token,None);return None
+        if session and session['expires']<now:self.sessions.pop(token,None);return None
+        return session
     def visible(self,cookie):
-        token=self.token(cookie)
         with self.lock:
-            session=self.sessions.get(token)
-            if session and session['expires']<time.time():self.sessions.pop(token,None);session=None
-            grants=session['grants'] if session else {}
+            session=self.session(self.token(cookie));grants=session['grants'] if session else {}
             return {g['id'] for g in self.groups.config['groups'] if not g.get('hidden') or grants.get(g['id'])==g.get('access_revision')}
+    @staticmethod
+    def valid_page(page):return isinstance(page,str) and bool(re.fullmatch(r'[A-Za-z0-9_-]{1,64}',page))
+    @staticmethod
+    def browser_token(cookie):
+        jar=SimpleCookie()
+        try:jar.load(cookie or '');return jar['cinema_pages'].value if 'cinema_pages' in jar else ''
+        except Exception:return ''
+    def touch_page(self,cookie,page):
+        if not self.valid_page(page):raise ValueError('分頁識別格式錯誤。')
+        with self.lock:
+            session=self.session(self.token(cookie));browser=self.browser_token(cookie);now=time.time()
+            if browser:
+                pages={key:seen for key,seen in self.browser_pages.get(browser,{}).items() if now-seen<=90}
+                pages[page]=now;self.browser_pages[browser]=pages
+            if session:
+                session.setdefault('pages',{})[page]=now
+    def close_page(self,cookie,page):
+        if not self.valid_page(page):raise ValueError('分頁識別格式錯誤。')
+        with self.lock:
+            token=self.token(cookie);session=self.session(token);browser=self.browser_token(cookie)
+            pages=self.browser_pages.get(browser,{}) if browser else session.get('pages',{}) if session else {}
+            pages.pop(page,None)
+            if session and self.groups.config.get('lock_on_page_close',False) and not pages:self.sessions.pop(token,None)
     @staticmethod
     def token(cookie):
         jar=SimpleCookie()
         try:jar.load(cookie or '');return jar['cinema_groups'].value if 'cinema_groups' in jar else ''
         except Exception:return ''
-    def unlock(self,password,cookie,peer):
+    def unlock(self,password,cookie,peer,page=None):
+        if self.groups.config.get('lock_on_page_close',False) and not self.valid_page(page):raise ValueError('請重新整理頁面後再解鎖。')
         if not isinstance(password,str) or len(password)>128:raise ValueError('密碼錯誤。')
         with self.lock:
             now=time.time();attempts=[t for t in self.failures.get(peer,[]) if now-t<60]
@@ -37,11 +67,16 @@ class GroupAccess:
             if not matched:
                 self.failures[peer]=attempts+[now];raise ValueError('密碼錯誤或沒有可解鎖的頻道。')
             self.failures.pop(peer,None)
-            old=self.sessions.pop(self.token(cookie),None)
+            old=self.session(self.token(cookie));self.sessions.pop(self.token(cookie),None)
             grants=dict(old['grants']) if old and old['expires']>now else {}
             grants.update({g['id']:g.get('access_revision') for g in matched})
             self.sessions={k:v for k,v in self.sessions.items() if v['expires']>now}
-            token=secrets.token_urlsafe(32);self.sessions[token]={'expires':now+8*3600,'grants':grants}
+            browser=self.browser_token(cookie)
+            pages=dict(self.browser_pages.get(browser,{})) if browser else dict(old.get('pages',{})) if old and old['expires']>now else {}
+            pages={key:seen for key,seen in pages.items() if now-seen<=90}
+            if self.valid_page(page):pages[page]=now
+            if browser:self.browser_pages[browser]=pages
+            token=secrets.token_urlsafe(32);self.sessions[token]={'expires':now+8*3600,'grants':grants,'pages':pages,'browser':browser}
             return token
     def lock_all(self,cookie):
         with self.lock:self.sessions.pop(self.token(cookie),None)

@@ -296,16 +296,23 @@ class Library:
                 if target.is_file() and target.stat().st_size: self.register_conversion(key,source,target)
             except OSError: pass
     def privacy_state(self):
-        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0))}
+        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0)),'lockOnPageClose':bool(self.config.get('lock_on_page_close',False))}
+    def set_lock_on_page_close(self,enabled):
+        with self.lock:
+            self.config['lock_on_page_close']=bool(enabled);save_config(self.config)
+            if enabled:
+                with self.group_access.lock:self.group_access.sessions.clear()
+        self.log('關閉最後一個分頁即上鎖：'+('開啟，請重新解鎖頻道。' if enabled else '關閉。'))
     def set_privacy(self,enabled):
         with self.lock:
             self.config['privacy_blur']=bool(enabled)
             self.config['privacy_revision']=int(self.config.get('privacy_revision',0))+1
             save_config(self.config)
         self.log('隱蔽已開啟：網頁影片與預覽套用毛玻璃。' if enabled else '隱蔽已關閉。')
-    def page_html(self):
+    def page_html(self,page_id=None):
         html=(BASE/'index.html').read_text('utf-8')
         state=self.privacy_state()
+        if page_id:html=html.replace('<meta charset=', '<meta name="localcinema-page" content="'+page_id+'"><meta charset=',1)
         return html.replace('<html lang="zh-Hant">','<html lang="zh-Hant" class="'+('privacy-blur' if state['enabled'] else '')+'" data-privacy-revision="'+str(state['revision'])+'">',1).encode('utf-8')
     def set_background(self,enabled):
         with self.lock:
@@ -501,6 +508,7 @@ def make_handler(lib):
         protocol_version='HTTP/1.1'
         def log_message(self,*args): pass
         def end_headers(self):
+            if getattr(self,'page_browser_cookie',None):self.send_header('Set-Cookie',f'cinema_pages={self.page_browser_cookie}; HttpOnly; SameSite=Strict; Path=/')
             self.send_header('Cross-Origin-Resource-Policy','same-origin')
             self.send_header('X-Frame-Options','DENY')
             self.send_header('Content-Security-Policy',"frame-ancestors 'none'")
@@ -519,6 +527,7 @@ def make_handler(lib):
                 return True
             except (ValueError,OSError): return False
         def authorized(self):
+            self.page_browser_cookie=None
             if not self.trusted_request():
                 self.reply(403,{'error':'不允許此網站來源或主機名稱。'})
                 return False
@@ -548,7 +557,12 @@ def make_handler(lib):
             if not self.authorized(): return
             route=urlparse(self.path).path
             try:
-                if route=='/': return self.reply(200,lib.page_html(),'text/html; charset=utf-8')
+                if route=='/':
+                    page=secrets.token_urlsafe(18);cookie=self.headers.get('Cookie','');browser=lib.group_access.browser_token(cookie)
+                    if not lib.group_access.valid_page(browser):
+                        browser=secrets.token_urlsafe(24);self.page_browser_cookie=browser;cookie+='; cinema_pages='+browser
+                    lib.group_access.touch_page(cookie,page)
+                    return self.reply(200,lib.page_html(page),'text/html; charset=utf-8')
                 if route=='/api/privacy': return self.reply(200,lib.privacy_state())
                 if route.startswith('/group-image/'):
                     if route.rsplit('/',1)[1] not in self.allowed_groups():return self.reply(404,{'error':'不存在'})
@@ -602,8 +616,12 @@ def make_handler(lib):
                 if not 0<length<=65536: return self.reply(400,{'error':'資料大小錯誤'})
                 data=json.loads(self.rfile.read(length)); route=urlparse(self.path).path
                 if route=='/api/groups/unlock':
-                    with lib.lock:session=lib.group_access.unlock(data.get('password'),self.headers.get('Cookie',''),self.client_address[0])
+                    with lib.lock:session=lib.group_access.unlock(data.get('password'),self.headers.get('Cookie',''),self.client_address[0],data.get('page'))
                     self.send_response(200);self.send_header('Set-Cookie',f'cinema_groups={session}; HttpOnly; SameSite=Strict; Path=/');self.send_header('Cache-Control','no-store');self.send_header('Content-Length','2');self.end_headers();self.wfile.write(b'{}');return
+                if route in ('/api/groups/page','/api/groups/page-close'):
+                    if route.endswith('page-close'):lib.group_access.close_page(self.headers.get('Cookie',''),data.get('page'))
+                    else:lib.group_access.touch_page(self.headers.get('Cookie',''),data.get('page'))
+                    return self.reply(200,{'ok':True})
                 if route=='/api/groups/lock':
                     lib.group_access.lock_all(self.headers.get('Cookie',''));return self.reply(200,{'ok':True})
                 allowed=self.allowed_groups()
@@ -1039,6 +1057,8 @@ def _run(instance):
     privacy_row=ttk.Frame(content); privacy_row.pack(fill='x',padx=20,pady=(8,2))
     privacy_var=tk.BooleanVar(value=bool(lib.config.get('privacy_blur',False)))
     ttk.Checkbutton(privacy_row,text='隱蔽（所有影片、封面與預覽加上毛玻璃）',variable=privacy_var,command=lambda:lib.set_privacy(privacy_var.get())).pack(side='left')
+    close_lock_var=tk.BooleanVar(value=bool(lib.config.get('lock_on_page_close',False)))
+    ttk.Checkbutton(content,text='關閉頁面即上鎖（最後一個分頁關閉時）',variable=close_lock_var,command=lambda:lib.set_lock_on_page_close(close_lock_var.get())).pack(anchor='w',padx=20,pady=4)
     background_row=ttk.Frame(content); background_row.pack(fill='x',padx=20,pady=(8,2))
     background_var=tk.BooleanVar(value=lib.background_enabled)
     def toggle_background():

@@ -117,6 +117,48 @@ class CoreTests(unittest.TestCase):
             lib.auto_promoter.busy=False
         finally:
             lib.scanning=False;lib.auto_promoter.busy=False;lib.shutdown()
+    def test_last_page_close_locks_only_its_browser(self):
+        groups=self.groups();groups.config['lock_on_page_close']=True
+        access=GroupAccess(groups);access.configure('hidden',True,'test-only-password')
+        browser='cinema_pages=browser-one'
+        access.touch_page(browser,'first');access.touch_page(browser,'second')
+        token=access.unlock('test-only-password',browser,'peer','first');cookie=browser+'; cinema_groups='+token
+        other='cinema_pages=browser-two';other_token=access.unlock('test-only-password',other,'other-peer','other-page');other+='; cinema_groups='+other_token
+        access.close_page(cookie,'first');self.assertIn('hidden',access.visible(cookie))
+        access.close_page(cookie,'second');self.assertNotIn('hidden',access.visible(cookie))
+        self.assertIn('hidden',access.visible(other))
+    def test_page_lock_option_off_and_lost_close_timeout(self):
+        from unittest.mock import patch
+        groups=self.groups();access=GroupAccess(groups);access.configure('hidden',True,'test-only-password')
+        token=access.unlock('test-only-password','','peer','first');cookie='cinema_groups='+token
+        access.close_page(cookie,'first');self.assertIn('hidden',access.visible(cookie))
+        groups.config['lock_on_page_close']=True
+        with patch('group_access.time.time',return_value=1000):
+            token=access.unlock('test-only-password','','peer','first');cookie='cinema_groups='+token
+        with patch('group_access.time.time',return_value=1091):self.assertNotIn('hidden',access.visible(cookie))
+    def test_page_close_http_revokes_media_after_last_tab(self):
+        import threading,http.client,re
+        from cinema import make_handler,ThreadingHTTPServer
+        config=self.groups().config;config['lock_on_page_close']=True
+        lib=Library(lambda text:None,db_path=self.root/'page-http.db',config=config)
+        media=self.root/'fixture.mp4';media.write_bytes(b'synthetic media')
+        lib.items=[{'id':'item','title':'Fixture','groups':['hidden'],'tags':[],'updated':0,'picture':None,'episodes':[{'id':'episode','name':'One','path':str(media)}]}]
+        lib.media={'episode':media};lib.group_access.configure('hidden',True,'page-password')
+        server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(lib));threading.Thread(target=server.serve_forever,daemon=True).start()
+        def request(method,path,data=None,cookie='',csrf=True):
+            connection=http.client.HTTPConnection('127.0.0.1',server.server_port);headers={'Cookie':cookie}
+            if csrf:headers['X-Cinema-Token']=lib.token
+            connection.request(method,path,json.dumps(data) if data is not None else None,headers)
+            response=connection.getresponse();result=(response.status,dict(response.getheaders()),response.read());connection.close();return result
+        try:
+            status,headers,body=request('GET','/');browser=headers['Set-Cookie'].split(';')[0];first=re.search(b'localcinema-page" content="([^"]+)',body).group(1).decode()
+            status,_,body=request('GET','/',cookie=browser);second=re.search(b'localcinema-page" content="([^"]+)',body).group(1).decode()
+            status,headers,_=request('POST','/api/groups/unlock',{'password':'page-password','page':first},browser)
+            self.assertEqual(status,200);cookie=browser+'; '+headers['Set-Cookie'].split(';')[0]
+            self.assertEqual(request('POST','/api/groups/page-close',{'page':first},cookie,csrf=False)[0],403)
+            request('POST','/api/groups/page-close',{'page':first},cookie);self.assertEqual(request('GET','/media/episode',cookie=cookie)[0],200)
+            request('POST','/api/groups/page-close',{'page':second},cookie);self.assertEqual(request('GET','/media/episode',cookie=cookie)[0],404)
+        finally:server.shutdown();server.server_close();lib.shutdown()
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:

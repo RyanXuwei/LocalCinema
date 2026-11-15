@@ -9,6 +9,7 @@
 - group_categories：group id → 該群組分類陣列。
 - group_tags：group id → item id → 標籤陣列。
 - 舊 categories／tags 保留相容資訊，不應再當成所有群組的共用分類來源。
+- lock_on_page_close：是否在同一瀏覽器最後一個分頁離開後撤銷隱藏頻道授權，預設 false。
 - 其他設定包含背景預轉、隱蔽等；保留未知設定，不以固定預設物件覆蓋整份檔案。
 
 舊 roots 沒有群組時歸 default。舊共用標籤首次升級會各自複製至當時存在的群組；之後互不連動，新群組從空白開始。變更密碼或隱藏設定會改 access_revision，撤銷既有解鎖。
