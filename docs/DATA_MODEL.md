@@ -23,6 +23,8 @@
 | keyframes | item_id／episode_id 的多個時間書籤 |
 | app_settings | LAN 授權 key 等程式設定 |
 | conversion_records | 已轉檔成品的人工檢查與保存待辦 |
+| cache_copies | 已保存 MP4 與快取 SHA256 對應，供安全清理 |
+| cache_moves | 已提交搬移的舊／新副本及 SHA256，供清理重試 |
 | media_replacements | 新 MP4 路徑 → 原影片／集數 ID、名稱與標題 |
 
 轉檔狀態：ready → confirmed → saved → 完成後移除記錄。saved 代表 MP4 已保存但原檔仍可能待回收，不能因其已存在就當成完成。舊版 replaced 記錄於啟動清除，識別別名仍保留。
@@ -39,7 +41,7 @@
 
 ## 自動保留模式（v1.6.0）
 
-使用者勾選「略過人工審核」即授權當次執行期間自動確認並保存全部完成項目；不寫入個人設定；v1.10.0 起後台每次啟動預設開啟。取消勾選停止後續項目，當前單筆保存／驗證／回收會完成。自動與手動流程共用同名保護、來源變更檢查、雜湊驗證及 media_replacements；回收失敗保留 saved 記錄，同一檔案版本不持續重試，重新勾選可重試。
+使用者勾選「略過人工審核」即授權當次執行期間自動確認並保存全部完成項目；不寫入個人設定；v1.10.0 起後台每次啟動預設勾選，v1.11.0 起服務未啟動或停止時 paused，啟動服務才恢復執行。取消勾選停止後續項目，當前單筆保存／驗證／回收會完成。自動與手動流程共用同名保護、來源變更檢查、雜湊驗證及 media_replacements；回收失敗保留 saved 記錄，同一檔案版本不持續重試，重新勾選可重試。
 
 ## playback 快取位置（v1.7.0）
 
@@ -53,4 +55,4 @@ cache_moves 在搬移路徑交易中記錄舊／新副本與雜湊，清理前�
 
 ## v1.10.0 啟動預設
 
-只有完整後台啟動會開啟自動保留；Library 合成測試與 --self-test 不會自行開啟。frozen 程式目錄取 sys.executable 所在目錄，原始碼版取 cinema.py 所在目錄。已保存的 playback_directory 設定優先於預設及舊版位置。
+完整後台啟動只預設勾選自動保留；服務啟動才實際執行。Library 合成測試與 --self-test 不會自行開啟。frozen 程式目錄取 sys.executable 所在目錄，原始碼版取 cinema.py 所在目錄。已保存的 playback_directory 設定優先於預設及舊版位置。

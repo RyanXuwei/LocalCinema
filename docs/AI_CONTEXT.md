@@ -1,47 +1,69 @@
-# LocalCinema 精簡交接
+# LocalCinema AI 交接
 
-更新日期：2026-11-14。新串先讀本檔與根目錄 AGENTS.md，按需閱讀 ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT，不必重讀長聊天。
+更新日期：2026-11-15。適用程式版本：v1.11.0。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
-## 目前可確認狀態
+## 目前狀態
 
-- 版本 1.5.1（version.py）；main 已同步 RyanXuwei/LocalCinema，程式提交 b48096d0db45d0c1ce5fdc3e5a0c98c0e61bed16。
-- 專案根目錄是唯一主要原始碼。outputs/LocalCinema 是供使用者使用的副本，每次改版後同步；outputs 不入 Git。
-- 最新安裝包 outputs/LocalCinema_Setup_v1.5.1_x64.exe，SHA256 在 outputs/LocalCinema_Setup_SHA256.txt。只保留最新版，過期生成檔移回收筒。
-- README 含完整操作說明；docs/images/localcinema-prototype.png 是使用者選定的圖 3 參考，實際虛構片單截圖另標明。
+- 程式版本由 version.py 決定。v1.11.0 程式提交：676cbe8768f7c20374f12ea4569daf3d9b7d5af7，已同步 main；後續純文件提交不代表程式升版。
+- 根目錄為主要原始碼；outputs/LocalCinema 為使用副本，改版完成後同步所需程式、素材與文件，保留既有捷徑，不整個刪掉重建。outputs 不入 Git。
+- v1.11.0 尚未產生安裝檔。歷史曾封裝至 v1.6.0，但舊產物不保證仍存在；不可將舊 self-test 報告或 SHA256 當成最新版證據。發行前確認實際檔名、版本、雜湊及報告。
+- 目前沒有已授權但未完成的功能改動。本次為文件整理，不改程式行為、不升版本、不打包。
 
-## 最新待辦：工作室 Logo
+## 使用者已確定的工作方式
 
-使用者問「去背黑色 icon 會否比較合適」，所指為頁尾 BitingBox Studio 整合名稱 Logo。上一則僅建議：透明底、米白色圖案與文字，去除圖示實心底塊，以適應深綠背景。尚未實作，也未取得使用者對最終配色的選擇。不要宣稱已完成，不要自行改成黑色。新串先簡短說明交接已完成並等待下一步；若使用者確認此建議再處理。保留原品牌路徑與比例。
+- 改版驗證後例行同步 RyanXuwei/LocalCinema；不必每次再問，但禁止 force push 或提交個人資料。
+- 只有使用者明確要求打包時才建立安裝檔。每次新版完成均提供可點擊的實際程式路徑，說明是否打包與是否同步。
+- 桌面與程式資料夾捷徑已補回，指向 outputs/LocalCinema/LocalCinema.pyw；不要覆蓋或提交本機捷徑。
+- 不自行開啟正式後台做測試。任何 UI 測試必須使用隔離設定、SQLite、虛構片單／影片，完成後退出自建視窗及控制狀態。
 
-## 不能越過的邊界
+## 隱私與不可破壞的不變量
 
-- 絕不讀取、掃描、列出或引用真實片庫、媒體名稱、路徑、設定、資料庫、連結與入口碼。測試只用虛構檔案及隔離資料。
-- import cinema 之前設定 LOCALAPPDATA 為臨時測試目錄；匯入即建立 DATA。
-- 個人資料固定在 %LOCALAPPDATA%/LocalCinema，安裝更新不覆蓋。掃描一層邊界、平鋪優先、群組獨立標籤、轉檔別名等不變量見 AGENTS/DATA_MODEL。
-- 完成改版後自動同步 GitHub；禁止 force push 或提交個人資料。安裝包僅本機輸出，不進 Git。
-- 電腦控制完成立即 completion_summary 並關閉自建測試頁。使用者討厭控制框殘留。
+- 未有特定授權，不讀取、掃描、列出或引用真實片庫、名稱、來源路徑、設定、資料庫、入口碼或 QR 內容。測試只用合成資料。
+- import cinema 前必須指定隔離 LOCALAPPDATA；匯入即建立 DATA。Library 測試與 --self-test 不啟用自動回收。
+- 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
+- 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
+- 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
 
-## 近期設計與互動
+## 最新後台與服務行為
 
-- 深綠／米白、細線鏤空 icon；首頁側欄、圖片內標題／標籤、三欄卡片、方格／列表切換。
-- 頂部片源按鈕維持大方形 App icon：桌面 52px／窄版 46px。不要改回小圓頭像。內建 30 款頭像已去背，WebP 保留 alpha；後台與自訂圖用 RGBA。
-- 標籤／進階篩選互斥；點外側空白處或 Esc 收起，內部操作保持展開。
-- 播放器同一視覺系統；手機兩列工具列；Hide 加首頁同款圖示。保持全螢幕與滿視窗回退。
-- 1.5.0 關鍵幀：按書籤立即新增目前時間的黃色旗標；keyframeRail 位於 seekRow。點旗標跳轉但不改播放／暫停狀態；paused 且 !seeking 且時間差 <=0.15 秒時點擊刪除。不再有輸入名稱／時間面板。舊資料保留，無 DB 遷移。防重複及連點寫入。
-- Short 保留按住畫面水平拖曳時間、底部時間軸／換片間隔、側邊收藏標籤放大。追加及裁剪卡片須按真實 anchor 幾何補償，不可盲目扣 scrollTop。
-- 服務啟動預設綁定 0.0.0.0，列出區網網址；每個網址獨立 QR 卡片，在本機用 qrcode 生成，內含存取碼。啟動不自動開瀏覽器。
+- 啟動／停止合併為一個切換按鈕，停止中鎖定按鈕並非阻塞 UI。
+- 後台每次啟動預設勾選「略過人工審核」，但服務尚未啟動時 paused，不自動處理。服務啟動後才恢復，停止後偏好保留但暫停。
+- 停止服務關閉 HTTP、中止 FFmpeg（包含影片長度探測）、清空待轉佇列，清理當次未完成暫存；已完成快取與來源影片保留。中斷影片下次從頭轉。
+- 保存／回收中的單筆先安全完成，再停止後續項目；掃描退出前仍顯示停止中。取消背景預轉勾選只停止後續排程，與停止整個服務不同。
+- 「開啟入口頁」含系統列選單，優先預設路由的區網 IPv4 並帶完整 access，無位址才 loopback。預設綁 0.0.0.0，啟動不自動開瀏覽器。
+- QR 在本機生成；LAN 授權 Cookie 為 HttpOnly／SameSite=Lax，群組授權仍 SameSite=Strict。不要宣稱所有手機掃碼器或網路都已驗證。
+- Windows 主視窗預設 1160×850、轉檔視窗 1280×850，依工作區置中／縮小；主視窗可捲動。
 
-## 元件與驗證
+## 轉檔、空間與進度
 
-- cinema.py：後台／HTTP／SQLite／掃描轉檔；source_groups.py：群組頭像與標籤；group_access.py：隱藏頻道授權；conversion_store.py：轉檔確認／回收／別名。
-- index.html：主要播放器及內嵌互動。assets/studio-layout.css：增量樣式；studio-navigation.js：版面與共用導航。不要重寫整個 HTML。
-- python -m unittest discover -s tests -v：6 個合成測試。
-- node tests/short_scroll.cjs：120 次追加裁剪模型。前端變更另做 JS syntax／HTML ID 檢查。
-- 近期瀏覽器已驗證桌面／390px 手機、篩選外點關閉、旗標增刪與集數隔離。未驗證使用者真實片庫、實體手機與多裝置長時間播放。
-- packaging/build_windows.ps1 使用 PyInstaller + Inno，內建 frozen self-test 以隔離 DB／資源／依賴／FFmpeg 驗證。qrcode 在 requirements 和 launcher preflight 中；licenses 保留授權。
-- 暫時建置 Inno 6.7.4 從官方 jrsoftware/issrc releases 取得，驗證 Authenticode Valid，裝到 work/inno；建置完成卸載並回收 work/build/dist。安裝包輸出到 outputs。
+- 轉檔視窗有「轉檔記錄」與「快取與空間」。後者集中目錄選擇、搬移、容量及安全清理。
+- 勾選略過人工審核會停用原有三個手動動作；自動及手動共用先保存、完整雜湊驗證、再回收的流程。失敗待辦保留，重新勾選可重試。
+- 成功保存／驗證／回收並提交識別別名後，才重新核對保存副本與快取、清除重複快取。只完成轉檔、唯一副本或待辦引用不刪除。
+- 舊版重複快取可手動清理，但須比對已保存 MP4；不是清空 playback，不按年齡盲刪，也不清回收筒。
+- 搬移前需停止服務、關閉背景預轉與略過人工審核、等待作業完成。只處理第一層 64 位十六進位檔名的完整 MP4；不搬原始片源、不遞迴、不搬 .partial.mp4。
+- 搬移採複製、驗證、提交前二次驗證、同一交易更新位置／記錄，再核對清理舊副本。cache_moves 記錄供中斷清理重試；cache_copies 不取代 media_replacements。
+- 空間低於 512 MiB 不啟動新轉檔；執行中低於 256 MiB 則停止並清理當次暫存。
+- operation_progress 只存最新快照，不累積每區塊 UI 事件。轉檔百分比來自 FFmpeg 時間；未知長度使用活動條，編碼中最高 99.9%。搬移／清理為階段及單檔百分比，不能說是整項總完成率。
 
-## GitHub 同步注意
+## 前端與品牌延續
 
-CLI gh 曾登入無寫入權的 Ryan-zoustec，勿擅自切帳號／取憑證。GitHub connector 對 RyanXuwei/LocalCinema 有寫入權。可用 create_blob → create_tree(base tree) → create_commit(parent head) → update_ref(expected_sha, force=false)，再 git fetch/reset --mixed origin/main 對齊。必須先核對本機 staged tree 與遠端 tree；保留未知修改。
-Python 對工具輸出的 JSON 使用 ensure_ascii=True，避免 Windows cp950 破壞中文路徑。base64 大圖按需要分塊，勿直接印給使用者。新串依工具實際 schema 操作。
+- 深綠／米白、細線鏤空圖示；片源頭像不套毛玻璃，大方形 App 頭像桌面 52px、窄版 46px。
+- 頁尾使用 bitingbox-studio-plaque.svg；只移除使用者授權的米白外底，玉綠牌匾、文字與品牌路徑保留。後台 bitingbox-studio.png 由同一稿輸出透明 RGBA。原 Logo 待選配色的討論已結束，不再列待辦。
+- 保留映室／LOCAL CINEMA、BitingBox Studio 與 Created by Ryan Hsu. 2026 © Copyright。
+- 關鍵幀一鍵加入時間軸旗標；跳轉不改播放狀態，暫停並在旗標 ±0.15 秒時再點刪除。
+- Short 追加與裁剪按實際 anchor 幾何補償，清理後重算導覽索引；不可改回固定高度扣 scrollTop。
+- 篩選面板互斥、外點或 Esc 關閉，內部勾選保留展開。截圖是歷史合成資料範例，不是目前所有後台狀態的證據。
+
+## 驗證與發行邊界
+
+- 上次程式驗證：26 項 unittest 通過，含合成影片實際 FFmpeg 轉檔／中止／重啟、快取驗證搬移／清理、授權與識別保留。
+- node tests/short_scroll.cjs 通過 120 次追加／清理模型；這不是實體手機測試。
+- 隔離 Tk 曾驗證服務切換兩輪、預設勾選、進度、目錄搬移與安全清理。沒有以真實片庫驗證，沒有跨實體磁碟故障或所有手機／瀏覽器長時間測試。
+- 新改動按範圍重跑測試，不把上次報告當成本次證據。純文件變更做連結、內容一致性及 diff 檢查即可。
+- 打包用 packaging/build_windows.ps1，PyInstaller onedir／windowed + Inno Setup。只在明確要求時執行，封裝後必跑 EXE --self-test 絕對報告路徑。
+
+## GitHub 與本機同步
+
+- CLI gh 曾使用無寫入權帳號，不擅自切帳號或取憑證。GitHub connector 可使用 create_blob → create_tree → create_commit → update_ref(force=false, expected_sha)。先核對本機與遠端基底，遠端 tree 必須等於已審查的 staged tree。
+- 同步後 fetch 並確認內容一致，再對齊本機；保留未知修改，不 force push。工具 JSON 中文輸出可用 ensure_ascii=True。
+- 本次整理前 docs/AI_CONTEXT.md 已有未提交交接修改；其原文已保留在 outputs/documentation-backup/AI_CONTEXT_before_2026-11-15.md，不入 Git。
