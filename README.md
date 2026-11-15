@@ -236,4 +236,4 @@ MP4 不覆蓋既有同名檔案，必要時使用帶識別碼的替代檔名。�
 
 Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
 
-程式採用 [MIT License](LICENSE)。第三方元件保留各自授權，參見 [licenses](licenses)；FFmpeg 是獨立程序，所附授權資料顯示使用 GPL 組建。MIT 不授予 BitingBox Studio 名稱與 Logo 的商標權；品牌素材的使用範圍另見[素材說明](docs/ASSETS_AND_LICENSES.md)。
+程式採用 [MIT License](LICENSE)。第三方元件保留各自授權，參見 [licenses](licenses)；FFmpeg 是獨立程序，所附授權資料顯示使用 GPL 組建。MIT 不授予 BitingBox Studio 名稱與 Logo 的商標權。如需使用 BitingBox Studio 商標或品牌素材，請透過 [RyanXuwei 的 GitHub](https://github.com/RyanXuwei) 聯繫並取得許可；詳細範圍見[素材說明](docs/ASSETS_AND_LICENSES.md)。
