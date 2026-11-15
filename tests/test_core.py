@@ -17,6 +17,19 @@ class CoreTests(unittest.TestCase):
     def groups(self):
         config={'groups':[{'id':'default','name':'Public'},{'id':'hidden','name':'Private'}],'roots':[],'tags':{},'categories':[]}
         return SourceGroups(config,self.root,Path(__file__).resolve().parents[1]/'assets/group-icons',lambda config:None)
+    def test_entry_url_prefers_lan_and_falls_back(self):
+        from unittest.mock import patch,MagicMock
+        from cinema import entry_url,lan_addresses
+        with patch('cinema.lan_addresses',return_value=['192.0.2.20','198.51.100.10']):
+            self.assertEqual(entry_url(9123,'synthetic-key'),'http://192.0.2.20:9123/?access=synthetic-key')
+        with patch('cinema.lan_addresses',return_value=[]):
+            self.assertEqual(entry_url(9123,'synthetic-key'),'http://127.0.0.1:9123/')
+        answers=[(2,1,6,'',(address,0)) for address in ['198.51.100.10','192.0.2.20','127.0.0.1','169.254.1.2']]
+        route=MagicMock();route.__enter__.return_value.getsockname.return_value=('192.0.2.20',12345)
+        with patch('cinema.socket.getaddrinfo',return_value=answers),patch('cinema.socket.socket',return_value=route):
+            self.assertEqual(lan_addresses(),['192.0.2.20','198.51.100.10'])
+        with patch('cinema.socket.getaddrinfo',side_effect=OSError),patch('cinema.socket.socket',side_effect=OSError):
+            self.assertEqual(lan_addresses(),[])
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:

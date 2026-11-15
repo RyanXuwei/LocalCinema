@@ -41,7 +41,19 @@ def lan_addresses():
             if not address.is_loopback and not address.is_link_local and not address.is_unspecified:
                 addresses.add(str(address))
     except OSError: pass
-    return sorted(addresses)
+    preferred=None
+    try:
+        # UDP connect selects the default route without sending a packet.
+        with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as route:
+            route.connect(('192.0.2.1',9))
+            preferred=route.getsockname()[0]
+    except OSError: pass
+    return sorted(addresses,key=lambda address:(address!=preferred,address))
+
+def entry_url(port,access_key):
+    addresses=lan_addresses()
+    if addresses: return f'http://{addresses[0]}:{port}/?access={access_key}'
+    return f'http://127.0.0.1:{port}/'
 
 class SingleInstance:
     """OS-owned handles release automatically when the process exits or crashes."""
@@ -837,13 +849,13 @@ def _run(instance):
                 events.put('預設連接埠 8765 無法使用，已改用其他可用連接埠；請以畫面顯示連結為準。')
             server.daemon_threads=True
             threading.Thread(target=server.serve_forever,daemon=True).start()
-        url=f'http://127.0.0.1:{server.server_port}/'; status.set('運行中：'+url)
+        url=entry_url(server.server_port,lib.access_key); status.set('運行中：'+url)
         status_link.configure(cursor='hand2',foreground='#c7c9a6',font=('Segoe UI',10,'underline'))
         show_lan()
         threading.Thread(target=lib.rescan,daemon=True).start()
     def open_page():
         if server is None: start()
-        webbrowser.open(f'http://127.0.0.1:{server.server_port}/')
+        webbrowser.open(entry_url(server.server_port,lib.access_key))
     def stop():
         nonlocal server
         if server: server.shutdown(); server.server_close(); server=None
