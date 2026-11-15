@@ -239,7 +239,7 @@ class AutoPromoter:
     """Session-only opt-in; failed snapshots wait for explicit retry."""
     def __init__(self,store,on_success,log,recycler=recycle_file,progress=None):
         self.store=store; self.on_success=on_success; self.log=log; self.recycler=recycler;self.progress=progress
-        self.lock=threading.RLock(); self.enabled=False; self.busy=False
+        self.lock=threading.RLock(); self.enabled=False; self.busy=False;self.paused=False
         self.failed={}; self.stop_event=threading.Event(); self.worker=None
         self.completed=0; self.errors=0
     def set_enabled(self,enabled):
@@ -249,14 +249,16 @@ class AutoPromoter:
                 self.failed.clear(); self.errors=0
                 if self.worker is None:
                     self.worker=threading.Thread(target=self.run,daemon=True); self.worker.start()
+    def set_paused(self,paused):
+        with self.lock:self.paused=bool(paused)
     def process_pending(self):
         with self.lock:
-            if not self.enabled or self.stop_event.is_set():return
+            if not self.enabled or self.paused or self.stop_event.is_set():return
         success=0
         for row in self.store.records():
             stamp=tuple(row[k] for k in ('source_size','source_mtime','output_size','output_mtime'))
             with self.lock:
-                if not self.enabled or self.stop_event.is_set(): break
+                if not self.enabled or self.paused or self.stop_event.is_set(): break
                 if self.failed.get(row['id'])==stamp: continue
                 self.busy=True
             try:

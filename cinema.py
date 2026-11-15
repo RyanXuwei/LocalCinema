@@ -186,14 +186,38 @@ class Library:
         self.cache_migrating=False
         self.compat_media={}; self.conversions={}; self.convert_queue=queue.Queue()
         self.convert_worker=None; self.convert_process=None; self.closing=False
+        self.processing_generation=0;self.processing_paused=False;self.processing_stop=threading.Event();self.conversion_idle=threading.Event();self.conversion_idle.set()
         self.background_enabled=bool(self.config.get('background_convert',False))
         self.background_wake=threading.Event(); self.shutdown_event=threading.Event()
         self.background_worker=None; self.scan_generation=0
         self.background_stats={'total':0,'checked':0,'ready':0,'failed':0}
         self.file_progress=OperationProgress()
         self.auto_promoter=AutoPromoter(self.conversion_store,self.rescan,self.log,progress=self.file_progress.update)
+    def pause_processing(self):
+        with self.lock:
+            self.processing_paused=True;self.processing_stop.set();self.scan_generation+=1;self.processing_generation+=1
+            self.auto_promoter.set_paused(True);process=self.convert_process
+            while True:
+                try:self.convert_queue.get_nowait()
+                except queue.Empty:break
+        if process and process.poll() is None:
+            try:
+                process.terminate()
+                try:process.wait(timeout=3)
+                except subprocess.TimeoutExpired:process.kill();process.wait(timeout=3)
+            except OSError:pass
+        self.conversion_idle.wait()
+        while self.auto_promoter.busy or self.scanning:time.sleep(.05)
+        with self.lock:
+            self.conversions={key:job for key,job in self.conversions.items() if job['state'] not in ('queued','converting')}
+    def resume_processing(self,wake=True):
+        with self.lock:
+            if self.closing:return
+            self.processing_stop.clear();self.processing_paused=False;self.auto_promoter.set_paused(False)
+        if wake:self.wake_background()
     def prepare(self,episode,force=False):
         with self.lock:
+            if self.processing_paused:return {'state':'error','message':'服務已停止，請先啟動服務。'}
             if self.cache_migrating: return {'state':'error','message':'正在搬移轉檔快取，請稍後再試。'}
             source=self.media.get(episode)
             if not source or not source.is_file(): return {'state':'error','message':'來源影片不存在，請重新掃描。'}
@@ -276,10 +300,10 @@ class Library:
             self.config['background_convert']=self.background_enabled
             save_config(self.config)
         self.wake_background()
-        self.log('背景預先轉檔已開啟。' if enabled else '已暫停背景預先排程；目前轉檔完成後不再新增背景工作。')
+        self.log(('背景預轉已設定，啟動服務後執行。' if self.processing_paused else '背景預先轉檔已開啟。') if enabled else '已暫停背景預先排程；目前轉檔完成後不再新增背景工作。')
     def wake_background(self):
         with self.lock:
-            if self.closing: return
+            if self.closing or self.processing_paused: return
             if self.background_enabled and self.background_worker is None:
                 self.background_worker=threading.Thread(target=self._background_collect,daemon=True)
                 self.background_worker.start()
@@ -289,7 +313,7 @@ class Library:
             self.background_wake.wait(); self.background_wake.clear()
             with self.lock:
                 if self.closing: return
-                if not self.background_enabled: continue
+                if not self.background_enabled or self.processing_paused: continue
                 generation=self.scan_generation
                 seen=set(); candidates=[]
                 for episode,source in self.media.items():
@@ -300,7 +324,7 @@ class Library:
             for episode in candidates:
                 while not self.closing:
                     with self.lock:
-                        if not self.background_enabled or generation!=self.scan_generation: break
+                        if self.processing_paused or not self.background_enabled or generation!=self.scan_generation: break
                     try: info=self.prepare(episode)
                     except OSError: info={'state':'error'}
                     if info['state'] in ('ready','error'):
@@ -311,11 +335,11 @@ class Library:
                     if self.shutdown_event.wait(.35): return
                 with self.lock:
                     if self.closing: return
-                    if not self.background_enabled or generation!=self.scan_generation: break
+                    if self.processing_paused or not self.background_enabled or generation!=self.scan_generation: break
     def conversion_status(self):
         with self.lock:
             states=[job['state'] for job in self.conversions.values()]
-            return dict(self.background_stats,enabled=self.background_enabled,
+            return dict(self.background_stats,enabled=self.background_enabled and not self.processing_paused,
                         queued=states.count('queued'),converting=states.count('converting'),
                         completed=states.count('ready'),errors=states.count('error'),active=next((dict(job) for job in self.conversions.values() if job['state']=='converting'),None))
     def _convert(self):
@@ -326,14 +350,20 @@ class Library:
             temporary=target.with_suffix('.partial.mp4');reader=None;process=None
             try:
                 with self.lock:
-                    if self.closing:return
+                    if self.closing or self.processing_paused:continue
+                    self.conversion_idle.clear()
                     self.conversions[key]={'state':'converting','seconds':0,'percent':None,'duration':None}
                 try:
-                    probe=subprocess.run([self.ffmpeg,'-hide_banner','-i',str(source)],capture_output=True,timeout=15,creationflags=0x08000000 if os.name=='nt' else 0)
-                    duration=parse_duration(probe.stderr.decode('utf-8',errors='replace'))
-                except (OSError,subprocess.TimeoutExpired):duration=None
+                    with self.lock:
+                        if self.processing_paused:continue
+                        self.convert_process=subprocess.Popen([self.ffmpeg,'-nostdin','-hide_banner','-i',str(source)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,creationflags=0x08000000 if os.name=='nt' else 0)
+                        probe=self.convert_process
+                    try:_,metadata=probe.communicate(timeout=15)
+                    except subprocess.TimeoutExpired:probe.kill();_,metadata=probe.communicate()
+                    duration=parse_duration(metadata.decode('utf-8',errors='replace'))
+                except OSError:duration=None
                 with self.lock:
-                    if self.closing: return
+                    if self.closing or self.processing_paused:continue
                     self.conversions[key]={'seconds':0,'duration':duration,'percent':None,'state':'converting','message':'正在製作相容播放檔，完成後自動播放；首次轉換可能較久。'}
                     if shutil.disk_usage(self.playback_dir).free<512*1024*1024:
                         raise OSError('快取空間不足，請先清理或搬移快取。')
@@ -346,11 +376,11 @@ class Library:
                             with self.lock:
                                 if self.conversions[job_key]['state']=='converting':self.conversions[job_key].update(value)
                 reader=threading.Thread(target=read_progress,daemon=True);reader.start()
-                result=wait_for_conversion(process,self.playback_dir,self.shutdown_event)
+                result=wait_for_conversion(process,self.playback_dir,self.processing_stop)
                 reader.join(timeout=2)
                 if not reader.is_alive():process.stdout.close()
                 with self.lock:
-                    if self.closing: return
+                    if self.closing or self.processing_paused:continue
                     if result!=0 or not temporary.is_file() or not temporary.stat().st_size: raise RuntimeError('conversion failed')
                     temporary.replace(target); self.compat_media[key]=target
                     self.conversions[key]={'state':'ready','url':'/compatible/'+key}
@@ -362,8 +392,9 @@ class Library:
                     failed_process.terminate()
                     try:failed_process.wait(timeout=5)
                     except subprocess.TimeoutExpired:failed_process.kill();failed_process.wait(timeout=5)
-                with self.lock: self.conversions[key]={'state':'error','message':'無法轉換此影片；來源可能損壞、受保護或使用不支援的編碼。'}
-                self.log('相容播放檔製作失敗；未變更原始影片。')
+                with self.lock:
+                    if not self.processing_paused and not self.closing:self.conversions[key]={'state':'error','message':'無法轉換此影片；來源可能損壞、受保護或使用不支援的編碼。'}
+                if not self.processing_paused and not self.closing:self.log('相容播放檔製作失敗；未變更原始影片。')
             finally:
                 if reader:
                     reader.join(timeout=2)
@@ -371,11 +402,12 @@ class Library:
                 with self.lock: self.convert_process=None
                 try: temporary.unlink(missing_ok=True)
                 except OSError: pass
+                self.conversion_idle.set()
     def shutdown(self):
         self.auto_promoter.close()
         with self.lock:
             self.closing=True; process=self.convert_process
-        self.shutdown_event.set(); self.background_wake.set()
+        self.shutdown_event.set(); self.processing_stop.set(); self.background_wake.set()
         self.convert_queue.put(None)
         if process and process.poll() is None:
             process.terminate()
@@ -415,7 +447,7 @@ class Library:
             return choice['id']
     def rescan(self):
         with self.lock:
-            if self.scanning or self.cache_migrating: return
+            if self.scanning or self.cache_migrating or self.processing_paused: return
             self.scanning=True
             roots=list(self.config['roots']); tags=dict(self.config['tags'])
         try:
@@ -433,6 +465,7 @@ class Library:
             self.log(f'掃描完成：{len(items)} 部作品，{len(self.media)} 個影片檔')
             for error in errors: self.log(error)
             for item in items:
+                if self.processing_paused or self.closing:break
                 if item['picture'] or not self.ffmpeg: continue
                 video=Path(item['episodes'][0]['path'])
                 cache=CACHE/(identity(video)+'-'+str(video.stat().st_mtime_ns)+'.jpg')
@@ -776,7 +809,7 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
         if remaining: tree.selection_set(remaining)
         selection_changed()
     def review():
-        if busy or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
+        if busy or getattr(root,'service_busy',False) or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         selected=tree.selection()
         if len(selected)!=1: messagebox.showinfo('檢查成品','請選取一筆記錄。',parent=window); return
         if lib.privacy_state()['enabled'] and not messagebox.askyesno('開啟外部成品檢查','隱蔽目前已開啟。網頁以外的系統播放器不會套用毛玻璃，將顯示清晰成品。是否開啟？',parent=window): return
@@ -785,7 +818,7 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
     def run_batch(action):
         nonlocal busy
         selected=list(tree.selection())
-        if not selected or busy or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
+        if not selected or busy or getattr(root,'service_busy',False) or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         if action=='confirm':
             if not messagebox.askyesno('人工檢查確認',f'你是否已播放檢查這 {len(selected)} 筆成品，確認畫面、聲音與內容沒有問題？\n此操作只標記已確認，不刪除原檔。',parent=window): return
         else:
@@ -795,9 +828,11 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
             if not messagebox.askyesno('確認保留MP4並回收原檔',f'將處理選取的 {len(selected)} 筆：\n{description}\n\n先在來源資料夾保存並驗證MP4，再將原檔移到資源回收筒。\n不覆蓋既有檔案；失敗時保留原檔。請先關閉正在播放原檔的裝置。\n是否繼續？',parent=window): return
         busy=True; root.conversion_busy=True; state.set('處理中，請勿移動或修改來源／成品…')
         for button in (review_button,confirm_button,remove_button,refresh_button,auto_check): button['state']='disabled'
+        generation=lib.processing_generation
         def worker():
             success=0; errors=[]
             for number,key in enumerate(selected,1):
+                if generation!=lib.processing_generation:break
                 def progress(phase,index=0,total=0,done=0,size=0):lib.file_progress.update(phase,number,len(selected),done,size)
                 progress('確認成品' if action=='confirm' else '準備保存')
                 try:
@@ -822,7 +857,8 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
             if errors: messagebox.showwarning('部分項目未完成','\n'.join(errors[:10]),parent=window)
         if lib.auto_promoter.enabled or lib.auto_promoter.busy:
             refresh()
-            state.set(f'自動模式：完成 {lib.auto_promoter.completed} 筆；未完成 {lib.auto_promoter.errors} 筆。關閉此視窗仍持續；取消勾選後停止後續項目。')
+            if lib.auto_promoter.paused:state.set('服務未啟動或已停止；自動保留暫停，啟動服務後恢復。')
+            else:state.set(f'自動模式：完成 {lib.auto_promoter.completed} 筆；未完成 {lib.auto_promoter.errors} 筆。關閉此視窗仍持續；取消勾選後停止後續項目。')
         else: selection_changed()
         window.after(500,pump_results)
     review_button=ttk.Button(buttons,text='開啟成品檢查',command=review); review_button.pack(side='left',padx=3)
@@ -879,6 +915,7 @@ def _run(instance):
             canvas.yview_scroll(-1 if event.delta>0 else 1,'units')
     root.bind_all('<MouseWheel>',scroll_content,add='+')
     events=queue.Queue(); lib=Library(events.put); server=None; tray=None
+    lib.processing_paused=True;lib.processing_stop.set();lib.auto_promoter.set_paused(True)
     lib.auto_promoter.set_enabled(True)
     heading=ttk.Frame(content); heading.pack(fill='x',padx=20,pady=(16,4))
     try:
@@ -1036,6 +1073,7 @@ def _run(instance):
         root.after_idle(fit_content)
     def start():
         nonlocal server
+        if getattr(root,'service_busy',False):return
         if getattr(root,'cache_move_busy',False):
             messagebox.showinfo('正在搬移','請等待快取搬移完成後再啟動服務。',parent=root); return
         if server is None:
@@ -1045,20 +1083,44 @@ def _run(instance):
                 events.put('預設連接埠 8765 無法使用，已改用其他可用連接埠；請以畫面顯示連結為準。')
             server.daemon_threads=True
             threading.Thread(target=server.serve_forever,daemon=True).start()
+        lib.resume_processing(wake=False);service_button.configure(text='■ 停止服務')
         url=entry_url(server.server_port,lib.access_key); status.set('運行中：'+url)
         status_link.configure(cursor='hand2',foreground='#c7c9a6',font=('Segoe UI',10,'underline'))
         show_lan()
         threading.Thread(target=lib.rescan,daemon=True).start()
     def open_page():
+        if getattr(root,'service_busy',False):return
         if server is None: start()
         if server is None: return
         webbrowser.open(entry_url(server.server_port,lib.access_key))
     def stop():
         nonlocal server
-        if server: server.shutdown(); server.server_close(); server=None
-        status.set('已停止入口頁服務')
-        status_link.configure(cursor='',foreground='#e5e1d7',font=('Segoe UI',10))
-        show_lan()
+        if getattr(root,'service_busy',False):return
+        root.service_busy=True;service_button.configure(text='正在停止…',state='disabled')
+        status.set('正在停止服務與轉檔；保存／回收中的單筆會安全完成…')
+        previous=server;result=queue.Queue()
+        def worker():
+            try:
+                if previous:previous.shutdown();previous.server_close()
+                lib.pause_processing()
+                while getattr(root,'conversion_busy',False):time.sleep(.05)
+                result.put(None)
+            except Exception as error:result.put(str(error))
+        threading.Thread(target=worker,daemon=True).start()
+        def finish():
+            nonlocal server
+            if result.empty():root.after(100,finish);return
+            error=result.get();root.service_busy=False
+            if error:
+                service_button.configure(text='■ 停止服務',state='normal')
+                messagebox.showerror('停止未完成',error,parent=root);return
+            server=None;service_button.configure(text='▶ 啟動服務',state='normal')
+            status.set('已停止服務與背景轉檔；已完成快取保留')
+            status_link.configure(cursor='',foreground='#e5e1d7',font=('Segoe UI',10));show_lan()
+        root.after(100,finish)
+    def toggle_service():
+        if server is None:start()
+        else:stop()
     def show(): root.deiconify(); root.state('normal'); root.lift(); root.focus_force()
     def hide():
         if tray:
@@ -1066,14 +1128,15 @@ def _run(instance):
             root.withdraw()
         else: messagebox.showinfo('系統列尚未啟用','請先安裝 pystray 與 Pillow，或使用最小化按鈕。'); root.iconify()
     def quit_app():
-        if getattr(root,'conversion_busy',False) or lib.auto_promoter.busy or getattr(root,'cache_move_busy',False):
-            messagebox.showinfo('仍在保存成品','請先等待轉檔記錄中的保存／回收作業完成，再結束程式。'); return
+        if getattr(root,'service_busy',False) or getattr(root,'conversion_busy',False) or lib.auto_promoter.busy or getattr(root,'cache_move_busy',False):
+            messagebox.showinfo('仍在處理','請等待服務停止、保存／回收或搬移作業完成，再結束程式。'); return
         lib.shutdown()
         if tray: tray.stop()
         if server: server.shutdown(); server.server_close()
         root.destroy()
     buttons=ttk.Frame(content); buttons.pack(fill='x',padx=20,pady=10)
-    for label,call in [('▶ 啟動',start),('開啟入口頁',open_page),('重新掃描',lambda:threading.Thread(target=lib.rescan,daemon=True).start()),('停止服務',stop),('縮至系統列',hide),('結束程式',quit_app)]: ttk.Button(buttons,text=label,command=call).pack(side='left',padx=3)
+    service_button=ttk.Button(buttons,text='▶ 啟動服務',command=toggle_service);service_button.pack(side='left',padx=3)
+    for label,call in [('開啟入口頁',open_page),('重新掃描',lambda:threading.Thread(target=lib.rescan,daemon=True).start()),('縮至系統列',hide),('結束程式',quit_app)]: ttk.Button(buttons,text=label,command=call).pack(side='left',padx=3)
     log=tk.Text(content,height=7,bg='#17191f',fg='#d8dee9',state='disabled'); log.pack(fill='both',expand=True,padx=20,pady=(0,15))
     content=outer_content
     backend_pages.bind('<<NotebookTabChanged>>',lambda event:root.after_idle(fit_content))

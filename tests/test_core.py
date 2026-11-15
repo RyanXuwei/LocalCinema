@@ -362,6 +362,42 @@ class CoreTests(unittest.TestCase):
             self.assertLess(parse_encode_progress('out_time_us=12000000',10)['percent'],100)
             self.assertIsNone(parse_encode_progress('out_time_us=1000000',None)['percent'])
         finally:lib.shutdown()
+    def test_stop_active_encoding_and_resume(self):
+        import subprocess,time
+        lib=Library(lambda text:None,db_path=self.root/'stop.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=self.root/'cache')
+        if not lib.ffmpeg:lib.shutdown();self.skipTest('FFmpeg unavailable')
+        source=self.root/'synthetic.avi'
+        try:
+            run=subprocess.run([lib.ffmpeg,'-hide_banner','-loglevel','error','-f','lavfi','-i','color=c=blue:s=640x360:r=24','-t','30','-c:v','mpeg4',str(source)],capture_output=True,timeout=20,creationflags=0x08000000 if os.name=='nt' else 0)
+            self.assertEqual(run.returncode,0);before=source.read_bytes();lib.media={'episode':source}
+            lib.prepare('episode',force=True);end=time.monotonic()+10
+            while time.monotonic()<end:
+                with lib.lock:active=lib.convert_process
+                if active and active.stdout is not None:break
+                time.sleep(.01)
+            self.assertIsNotNone(active);self.assertIsNotNone(active.stdout)
+            ready_cache=lib.playback_dir/('1'*64+'.mp4');ready_cache.write_bytes(b'completed cache fixture')
+            lib.pause_processing()
+            self.assertIsNotNone(active.poll());self.assertTrue(lib.conversion_idle.is_set())
+            self.assertIsNone(lib.convert_process);self.assertFalse(list(lib.playback_dir.glob('*.partial.mp4')))
+            self.assertEqual(source.read_bytes(),before);self.assertEqual(ready_cache.read_bytes(),b'completed cache fixture')
+            self.assertEqual(lib.conversion_status()['queued'],0);self.assertEqual(lib.conversion_status()['converting'],0)
+            self.assertEqual(lib.prepare('episode',force=True)['state'],'error')
+            lib.resume_processing();lib.prepare('episode',force=True);end=time.monotonic()+20
+            while time.monotonic()<end:
+                with lib.lock:states=[job['state'] for job in lib.conversions.values()]
+                if states and states[0] in ('ready','error'):break
+                time.sleep(.03)
+            self.assertEqual(states,['ready']);self.assertEqual(source.read_bytes(),before)
+        finally:lib.shutdown()
+    def test_paused_automation_keeps_preference_and_items(self):
+        from conversion_store import AutoPromoter
+        store=ConversionStore(self.root/'paused.db');source=self.root/'source.flv';source.write_bytes(b'original')
+        cache=self.root/'cache.mp4';cache.write_bytes(b'converted');store.register('job',source,cache)
+        auto=AutoPromoter(store,lambda:None,lambda text:None,lambda path:path.rename(self.root/'recycled.flv'))
+        auto.enabled=True;auto.set_paused(True);auto.process_pending()
+        self.assertTrue(auto.enabled);self.assertTrue(source.exists());self.assertEqual(len(store.records()),1)
+        auto.set_paused(False);auto.process_pending();self.assertFalse(source.exists());auto.close()
     def test_recycle_failure_is_retryable(self):
         store=ConversionStore(self.root/'test.db');source=self.root/'test.flv';output=self.root/'cache.mp4'
         source.write_bytes(b'original');output.write_bytes(b'converted');store.register('job',source,output);store.confirm('job')
