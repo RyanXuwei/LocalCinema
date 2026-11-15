@@ -32,7 +32,7 @@
 
 - 不必要地改寫整個內嵌 JS/CSS；先搜尋責任函式。維持 HTML ID 唯一、伺服器 asset 白名單與前端引用一致。
 - 邏輯／安全修改應跑相關合成測試與語法檢查；低影響文字或樣式修改不建立只鏡像實作的測試。
-- `python -m unittest discover -s tests -v`；有 Node 時執行 `node tests/short_scroll.cjs`。
+- `python -m unittest discover -s tests -v`；有 Node 時執行 `node tests/short_scroll.cjs` 與 `node tests/hover_preview.cjs`。
 - Windows 封裝後用 `LocalCinema.exe --self-test <絕對報告路徑>`，此模式隔離個人資料且不開 UI。
 - 使用電腦控制必須符合當次授權，完成後退出，不能留下控制狀態；禁止拿真實片庫做視覺驗證。
 - 修改發行版本時同步 `version.py`、`index.html` 頁尾及 `CHANGELOG.md`；打包版本從 `version.py` 讀取。修復升 patch、功能升 minor。

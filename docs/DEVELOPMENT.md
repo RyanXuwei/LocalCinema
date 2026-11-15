@@ -17,6 +17,7 @@ py -3.12 -m venv .venv
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 node tests/short_scroll.cjs
+node tests/hover_preview.cjs
 ```
 
 Python 測試在匯入 cinema 前替換 LOCALAPPDATA，建立虛構目錄及 SQLite。目前共有 27 項測試，涵蓋模式與深度、平鋪子片源接管、群組標籤、頻道授權撤銷／限制、換檔識別、回收中斷重試、快取搬移／清理／損壞保留、進度解析、視窗邊界，以及合成影片的實際 FFmpeg 轉檔與停止／重啟。數量僅是本次文件盤點，新增測試後應更新。JS 測試提取實際 Short 函式，以合成幾何模型驗證載入／清理不移動畫面、清理後不跳片。這不是瀏覽器實機視覺驗證。
@@ -34,7 +35,7 @@ Python 測試在匯入 cinema 前替換 LOCALAPPDATA，建立虛構目錄及 SQL
 
 腳本讀 version.py、收集本機 assets／index.html／imageio_ffmpeg，產生無主控台的 onedir 程式，先執行隔離 self-test，再由 packaging/setup.iss 產生 dist/LocalCinema_Setup_v版本_x64.exe 及 SHA256。build／dist 不入 Git。
 
-安裝固定 AppId、目前使用者權限、可選桌面捷徑，不自動啟動程式；不刪除 LocalAppData/LocalCinema。已有安裝版沿用這個 AppId，不得每版更換。正式更新前完整退出舊後台。歷史已使用此流程封裝至 v1.6.0，內建隔離 self-test 曾通過；目前 v1.11.1 尚未打包。舊安裝包、舊 SHA256 或舊報告不得用作目前版本證據。安裝邏輯沿用固定 AppId 與個人資料分離規則。
+安裝固定 AppId、目前使用者權限、可選桌面捷徑，不自動啟動程式；不刪除 LocalAppData/LocalCinema。已有安裝版沿用這個 AppId，不得每版更換。正式更新前完整退出舊後台。歷史已使用此流程封裝至 v1.6.0，內建隔離 self-test 曾通過；目前 v1.11.2 尚未打包。舊安裝包、舊 SHA256 或舊報告不得用作目前版本證據。安裝邏輯沿用固定 AppId 與個人資料分離規則。
 
 未做程式發行者數位簽章。自行散布二進位前，確認第三方元件、FFmpeg 組建與對應授權／來源；不要用根目錄 MIT 覆蓋其條件。
 
@@ -52,3 +53,5 @@ Python 測試在匯入 cinema 前替換 LOCALAPPDATA，建立虛構目錄及 SQL
 ## 發行
 
 同步 version.py、index.html 頁尾、CHANGELOG。檢查 git diff 與待提交檔案，避免個人資料。安裝包宜由 Releases 發行，而非提交大型 EXE 到 Git 歷史。是否已有遠端 Release 需實際確認，不根據本機產物推定已發布。使用者規定只有明確要求時才打包；每次改版完成均提供實際程式路徑與打包／同步狀態。純文件整理不升程式版本。
+
+滑鼠預覽回歸測試使用實際 index.html 函式、合成 DOM、虛擬時鐘與 API 回應，檢查靜止 500ms、長短影片 10% 起播、輪詢不中斷與來源移除立即停止。這不代表已在真實瀏覽器驗證解碼或自動播放政策。
