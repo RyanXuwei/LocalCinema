@@ -41,6 +41,10 @@
 - 程式改版後同步 README 與 AI_CONTEXT 的現況，歷史 CHANGELOG 保留原版行為並用日期／版本區分。純文件整理不升程式版本。
 - 同步 outputs/LocalCinema 時逐檔更新所需檔案，保留捷徑與未知檔案，不整個刪除重建。
 
+## 文件定位
+
+README 面向使用者，聚焦程式功能、用法、注意事項、部署與版權；不放生成提示詞、聊天指示、設計推演或 AI 執行過程。開發細節與 AI 交接各自放在 docs/DEVELOPMENT.md、docs/AI_CONTEXT.md 等專門文件。
+
 ## 品牌與檔案
 
 保留「映室 / LOCAL CINEMA」、BitingBox Studio Logo 及 `Created by Ryan Hsu. 2026 © Copyright` 署名。Logo 只等比例顯示，不重繪路徑；改色或造型需使用者授權。
