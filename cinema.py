@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from contextlib import contextmanager
 from conversion_store import ConversionStore,AutoPromoter
+from playback_storage import playback_directory,relocate_playback
 from source_groups import SourceGroups,open_group_manager,DEFAULT_GROUP
 from source_help import open_source_help
 from version import APP_VERSION
@@ -154,7 +155,8 @@ class Library:
             import imageio_ffmpeg
             self.ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
         except ImportError: self.ffmpeg=shutil.which('ffmpeg')
-        self.playback_dir=Path(playback_dir) if playback_dir else DATA/'playback'
+        self.playback_dir=Path(playback_dir) if playback_dir else playback_directory(self.db_path,DATA/'playback')
+        self.cache_migrating=False
         self.compat_media={}; self.conversions={}; self.convert_queue=queue.Queue()
         self.convert_worker=None; self.convert_process=None; self.closing=False
         self.background_enabled=bool(self.config.get('background_convert',False))
@@ -164,6 +166,7 @@ class Library:
         self.auto_promoter=AutoPromoter(self.conversion_store,self.rescan,self.log)
     def prepare(self,episode,force=False):
         with self.lock:
+            if self.cache_migrating: return {'state':'error','message':'正在搬移轉檔快取，請稍後再試。'}
             source=self.media.get(episode)
             if not source or not source.is_file(): return {'state':'error','message':'來源影片不存在，請重新掃描。'}
             if not force and source.suffix.lower() in ('.mp4','.m4v','.webm'):
@@ -184,6 +187,20 @@ class Library:
                 if self.convert_worker is None:
                     self.convert_worker=threading.Thread(target=self._convert,daemon=True); self.convert_worker.start()
             return dict(self.conversions[key])
+    def relocate_playback(self,destination):
+        with self.lock:
+            if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
+                raise ValueError('請先停止服務、關閉背景預轉與自動保留，並等待目前轉檔或掃描完成。')
+            self.cache_migrating=True
+        try:
+            with self.conversion_store.lock:
+                result=relocate_playback(self.playback_dir,destination,self.db_path)
+                with self.lock:
+                    self.playback_dir=playback_directory(self.db_path,self.playback_dir)
+                    self.compat_media={key:self.playback_dir/path.name for key,path in self.compat_media.items()}
+            return result
+        finally:
+            with self.lock: self.cache_migrating=False
     def register_conversion(self,key,source,target):
         item_id=episode_id=title=None
         with self.lock:
@@ -333,7 +350,7 @@ class Library:
             return choice['id']
     def rescan(self):
         with self.lock:
-            if self.scanning: return
+            if self.scanning or self.cache_migrating: return
             self.scanning=True
             roots=list(self.config['roots']); tags=dict(self.config['tags'])
         try:
@@ -551,6 +568,8 @@ def make_handler(lib):
     return Handler
 
 def open_conversion_records(root,lib,log):
+    if lib.cache_migrating:
+        messagebox.showinfo('正在搬移','請等待快取搬移完成。',parent=root); return
     previous=getattr(root,'conversion_window',None)
     if previous and previous.winfo_exists(): previous.deiconify(); previous.lift(); return
     window=tk.Toplevel(root); root.conversion_window=window
@@ -575,7 +594,7 @@ def open_conversion_records(root,lib,log):
     names={'ready':'待人工檢查','confirmed':'已確認','saved':'MP4已保存／待回收','replaced':'僅保留MP4'}
     def selection_changed(event=None):
         selected=[rows[key] for key in tree.selection() if key in rows]
-        manual=not busy and not lib.auto_promoter.enabled and not lib.auto_promoter.busy
+        manual=not busy and not lib.cache_migrating and not lib.auto_promoter.enabled and not lib.auto_promoter.busy
         for button in (review_button,confirm_button): button['state']='normal' if manual else 'disabled'
         remove_button['state']='normal' if selected and manual and all(row['confirmed_at'] and row['status'] in ('confirmed','saved') for row in selected) else 'disabled'
         details.configure(state='normal'); details.delete('1.0','end')
@@ -592,7 +611,7 @@ def open_conversion_records(root,lib,log):
         if remaining: tree.selection_set(remaining)
         selection_changed()
     def review():
-        if busy or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
+        if busy or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         selected=tree.selection()
         if len(selected)!=1: messagebox.showinfo('檢查成品','請選取一筆記錄。',parent=window); return
         if lib.privacy_state()['enabled'] and not messagebox.askyesno('開啟外部成品檢查','隱蔽目前已開啟。網頁以外的系統播放器不會套用毛玻璃，將顯示清晰成品。是否開啟？',parent=window): return
@@ -601,7 +620,7 @@ def open_conversion_records(root,lib,log):
     def run_batch(action):
         nonlocal busy
         selected=list(tree.selection())
-        if not selected or busy or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
+        if not selected or busy or lib.cache_migrating or lib.auto_promoter.enabled or lib.auto_promoter.busy: return
         if action=='confirm':
             if not messagebox.askyesno('人工檢查確認',f'你是否已播放檢查這 {len(selected)} 筆成品，確認畫面、聲音與內容沒有問題？\n此操作只標記已確認，不刪除原檔。',parent=window): return
         else:
@@ -641,6 +660,8 @@ def open_conversion_records(root,lib,log):
     remove_button=ttk.Button(buttons,text='保留MP4並回收原檔',command=lambda:run_batch('promote'),state='disabled'); remove_button.pack(side='left',padx=3)
     refresh_button=ttk.Button(buttons,text='更新記錄',command=refresh); refresh_button.pack(side='left',padx=3)
     def toggle_auto():
+        if lib.cache_migrating:
+            auto_mode.set(False); return
         lib.auto_promoter.set_enabled(auto_mode.get())
         selection_changed()
         state.set('自動模式已啟用；處理全部既有與新完成項目。' if auto_mode.get() else '已停止後續自動項目；正在保存的單筆會安全完成。')
@@ -799,10 +820,38 @@ def _run(instance):
     ttk.Checkbutton(privacy_row,text='隱蔽（所有影片、封面與預覽加上毛玻璃）',variable=privacy_var,command=lambda:lib.set_privacy(privacy_var.get())).pack(side='left')
     background_row=ttk.Frame(content); background_row.pack(fill='x',padx=20,pady=(8,2))
     background_var=tk.BooleanVar(value=lib.background_enabled)
-    def toggle_background(): lib.set_background(background_var.get())
+    def toggle_background():
+        if getattr(root,'cache_move_busy',False):
+            background_var.set(lib.background_enabled); return
+        lib.set_background(background_var.get())
     ttk.Checkbutton(background_row,text='背景預先轉檔（使用CPU與磁碟空間）',variable=background_var,command=toggle_background).pack(side='left')
     ttk.Button(background_row,text='轉檔記錄／人工檢查',command=lambda:open_conversion_records(root,lib,events.put)).pack(side='left',padx=12)
     ttk.Label(content,text='掃描後自動排程非MP4／M4V／WebM影片；每次一支，已完成快取會跳過。取消勾選暫停後續排程。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
+    cache_row=ttk.Frame(content); cache_row.pack(fill='x',padx=20,pady=(8,4))
+    cache_text=tk.StringVar(value='轉檔快取目錄：'+str(lib.playback_dir))
+    ttk.Label(cache_row,textvariable=cache_text,wraplength=600).pack(side='left',fill='x',expand=True)
+    cache_results=queue.Queue()
+    def choose_cache():
+        if server is not None or lib.cache_migrating or getattr(root,'conversion_busy',False):
+            messagebox.showinfo('請先停止服務','請停止服務並等候保存作業完成後再搬移快取。',parent=root); return
+        folder=filedialog.askdirectory(title='選擇轉檔快取目錄（搬移既有快取）',parent=root)
+        if not folder:return
+        cache_button['state']='disabled'; root.cache_move_busy=True
+        cache_text.set('正在搬移與驗證快取，請勿關閉程式…')
+        def worker():
+            try: cache_results.put((lib.relocate_playback(folder),None))
+            except Exception as error: cache_results.put((None,str(error)))
+        threading.Thread(target=worker,daemon=True).start()
+        def finish():
+            if cache_results.empty(): root.after(200,finish); return
+            result,error=cache_results.get(); root.cache_move_busy=False; cache_button['state']='normal'
+            cache_text.set('轉檔快取目錄：'+str(lib.playback_dir))
+            if error:messagebox.showerror('未完成搬移',error,parent=root)
+            else:messagebox.showinfo('快取目錄已更新',f"已搬移並驗證 {result['moved']} 個快取。\n舊目錄保留 {result['retained']} 個未能清理的快取。\n後續轉檔將使用新目錄。",parent=root)
+        root.after(200,finish)
+    cache_button=ttk.Button(cache_row,text='選擇目錄並搬移快取',command=choose_cache); cache_button.pack(side='right',padx=8)
+    ttk.Label(content,text='需先停止服務、關閉背景預轉與略過人工審核，並等候轉檔完成。僅搬移已完成快取；驗證後才清理舊檔，原始影片不搬移。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
+
     conversion_text=tk.StringVar(value='背景預轉尚未排程')
     ttk.Label(content,textvariable=conversion_text,wraplength=800).pack(anchor='w',padx=20,pady=(5,2))
     conversion_progress=ttk.Progressbar(content,mode='determinate',maximum=100)
@@ -842,6 +891,8 @@ def _run(instance):
         root.after_idle(fit_content)
     def start():
         nonlocal server
+        if getattr(root,'cache_move_busy',False):
+            messagebox.showinfo('正在搬移','請等待快取搬移完成後再啟動服務。',parent=root); return
         if server is None:
             try: server=ThreadingHTTPServer(('0.0.0.0',8765),make_handler(lib))
             except OSError:
@@ -855,6 +906,7 @@ def _run(instance):
         threading.Thread(target=lib.rescan,daemon=True).start()
     def open_page():
         if server is None: start()
+        if server is None: return
         webbrowser.open(entry_url(server.server_port,lib.access_key))
     def stop():
         nonlocal server
@@ -869,7 +921,7 @@ def _run(instance):
             root.withdraw()
         else: messagebox.showinfo('系統列尚未啟用','請先安裝 pystray 與 Pillow，或使用最小化按鈕。'); root.iconify()
     def quit_app():
-        if getattr(root,'conversion_busy',False) or lib.auto_promoter.busy:
+        if getattr(root,'conversion_busy',False) or lib.auto_promoter.busy or getattr(root,'cache_move_busy',False):
             messagebox.showinfo('仍在保存成品','請先等待轉檔記錄中的保存／回收作業完成，再結束程式。'); return
         lib.shutdown()
         if tray: tray.stop()

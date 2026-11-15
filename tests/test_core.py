@@ -30,6 +30,60 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(lan_addresses(),['192.0.2.20','198.51.100.10'])
         with patch('cinema.socket.getaddrinfo',side_effect=OSError),patch('cinema.socket.socket',side_effect=OSError):
             self.assertEqual(lan_addresses(),[])
+    def test_playback_directory_move_and_restart(self):
+        from playback_storage import playback_directory
+        source=self.root/'cache-old';source.mkdir();target=self.root/'cache-new'
+        key='a'*64;cache=source/(key+'.mp4');cache.write_bytes(b'synthetic converted bytes')
+        original=self.root/'synthetic.flv';original.write_bytes(b'synthetic original')
+        lib=Library(lambda text:None,db_path=self.root/'move.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=source)
+        lib.conversion_store.register(key,original,cache,'item','episode','Fixture')
+        lib.conversion_store.confirm(key);before=lib.conversion_store.get(key)
+        lib.compat_media[key]=cache
+        (source/'unrelated.txt').write_text('leave unchanged')
+        (source/('b'*64+'.partial.mp4')).write_bytes(b'partial')
+        try:
+            report=lib.relocate_playback(target)
+            self.assertEqual(report['moved'],1);self.assertFalse(cache.exists())
+            moved=target/cache.name;self.assertEqual(moved.read_bytes(),b'synthetic converted bytes')
+            self.assertTrue(original.exists());self.assertTrue((source/'unrelated.txt').exists())
+            self.assertTrue((source/('b'*64+'.partial.mp4')).exists())
+            after=lib.conversion_store.get(key)
+            self.assertEqual(after['output_path'],str(moved));self.assertEqual(after['status'],'confirmed')
+            self.assertEqual(after['confirmed_at'],before['confirmed_at'])
+            self.assertEqual(after['item_id'],'item');self.assertEqual(after['episode_id'],'episode')
+            self.assertEqual(lib.compat_media[key],moved)
+            self.assertEqual(playback_directory(lib.db_path,source),target)
+            self.assertEqual(lib.conversion_store.review_path(key),moved)
+        finally:lib.shutdown()
+        restarted=Library(lambda text:None,db_path=self.root/'move.db',config={'roots':[],'tags':{},'categories':[]})
+        try:self.assertEqual(restarted.playback_dir,target)
+        finally:restarted.shutdown()
+    def test_playback_move_conflicts_and_busy_keep_old(self):
+        from playback_storage import playback_directory
+        source=self.root/'old';source.mkdir();target=self.root/'new';target.mkdir()
+        name='c'*64+'.mp4';(source/name).write_bytes(b'cache');(target/name).write_bytes(b'conflict')
+        lib=Library(lambda text:None,db_path=self.root/'conflict.db',config={'roots':[],'tags':{},'categories':[]},playback_dir=source)
+        try:
+            with self.assertRaises(ValueError):lib.relocate_playback(target)
+            self.assertEqual((source/name).read_bytes(),b'cache');self.assertEqual((target/name).read_bytes(),b'conflict')
+            self.assertEqual(playback_directory(lib.db_path,source),source)
+            with self.assertRaises(ValueError):lib.relocate_playback(source/'nested')
+            lib.background_enabled=True
+            with self.assertRaises(ValueError):lib.relocate_playback(target)
+            lib.background_enabled=False
+            (target/name).write_bytes(b'cache')
+            self.assertEqual(lib.relocate_playback(target)['moved'],1)
+            self.assertFalse((source/name).exists())
+        finally:lib.shutdown()
+    def test_playback_move_failed_commit_preserves_cache(self):
+        from playback_storage import relocate_playback
+        import sqlite3
+        source=self.root/'old';source.mkdir();target=self.root/'new';name='d'*64+'.mp4'
+        (source/name).write_bytes(b'cache')
+        # Deliberately missing schema: copying succeeds, database commit cannot.
+        with self.assertRaises(sqlite3.OperationalError):relocate_playback(source,target,self.root/'missing-schema.db')
+        self.assertEqual((source/name).read_bytes(),b'cache')
+        self.assertEqual((target/name).read_bytes(),b'cache')
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:
