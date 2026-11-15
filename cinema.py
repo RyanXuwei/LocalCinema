@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 BASE = Path(__file__).resolve().parent
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys,'frozen',False) else BASE
 DATA = Path(os.environ.get('LOCALAPPDATA', str(BASE))) / 'LocalCinema'
 DATA.mkdir(parents=True, exist_ok=True)
 CACHE = DATA / 'posters'
@@ -56,6 +57,31 @@ def entry_url(port,access_key):
     addresses=lan_addresses()
     if addresses: return f'http://{addresses[0]}:{port}/?access={access_key}'
     return f'http://127.0.0.1:{port}/'
+
+def default_playback_directory(app_dir,data_dir):
+    legacy=Path(data_dir)/'playback'
+    return legacy if legacy.is_dir() else Path(app_dir)/'playback'
+
+def window_dimensions(width,height,records=False):
+    available_w=max(320,width-48);available_h=max(320,height-48)
+    preferred_w,preferred_h=(1280,850) if records else (1160,850)
+    return (min(preferred_w,available_w),min(preferred_h,available_h),
+            min(860 if records else 800,available_w),min(560,available_h))
+
+def size_window(window,records=False):
+    left=top=0;width=window.winfo_screenwidth();height=window.winfo_screenheight()
+    if os.name=='nt':
+        try:
+            import ctypes
+            from ctypes import wintypes
+            rectangle=wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(48,0,ctypes.byref(rectangle),0):
+                left,top=rectangle.left,rectangle.top;width=rectangle.right-left;height=rectangle.bottom-top
+        except (AttributeError,OSError):pass
+    w,h,min_w,min_h=window_dimensions(width,height,records)
+    window.geometry(f'{w}x{h}+{left+(width-w)//2}+{top+(height-h)//2}')
+    window.minsize(min_w,min_h)
+    return width,height
 
 class SingleInstance:
     """OS-owned handles release automatically when the process exits or crashes."""
@@ -156,7 +182,7 @@ class Library:
             import imageio_ffmpeg
             self.ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
         except ImportError: self.ffmpeg=shutil.which('ffmpeg')
-        self.playback_dir=Path(playback_dir) if playback_dir else playback_directory(self.db_path,DATA/'playback')
+        self.playback_dir=Path(playback_dir) if playback_dir else playback_directory(self.db_path,default_playback_directory(APP_DIR,DATA))
         self.cache_migrating=False
         self.compat_media={}; self.conversions={}; self.convert_queue=queue.Queue()
         self.convert_worker=None; self.convert_process=None; self.closing=False
@@ -706,8 +732,7 @@ def open_conversion_records(root,lib,log,service_running=lambda:False):
     if previous and previous.winfo_exists(): previous.deiconify(); previous.lift(); return
     window=tk.Toplevel(root); root.conversion_window=window
     window.title('轉檔記錄｜保留MP4'); window.configure(bg='#171817')
-    available_w=max(320,root.winfo_screenwidth()-60); available_h=max(320,root.winfo_screenheight()-100)
-    window.geometry(f'{min(1100,available_w)}x{min(680,available_h)}'); window.minsize(min(760,available_w),min(480,available_h))
+    size_window(window,records=True)
     notebook=ttk.Notebook(window);notebook.pack(fill='both',expand=True,padx=8,pady=8)
     records_page=ttk.Frame(notebook);storage_page=ttk.Frame(notebook)
     notebook.add(records_page,text='轉檔記錄');notebook.add(storage_page,text='快取與空間')
@@ -823,9 +848,7 @@ def _run(instance):
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('LocalCinema.Desktop')
     root=tk.Tk(); root.title(f'LocalCinema v{APP_VERSION}｜本機影片後台 · by BitingBox Studio')
-    screen_w=max(320,root.winfo_screenwidth()-60); screen_h=max(320,root.winfo_screenheight()-100)
-    minimum_w=min(960,screen_w); minimum_h=min(760,screen_h)
-    root.geometry(f'{minimum_w}x{min(820,screen_h)}'); root.minsize(minimum_w,minimum_h)
+    size_window(root)
     try: root.iconbitmap(default=str(BASE/'assets'/'localcinema.ico'))
     except tk.TclError: pass
     root.configure(bg='#171817'); root.option_add('*Font',('Microsoft JhengHei UI',10))
@@ -849,14 +872,14 @@ def _run(instance):
     canvas.bind('<Configure>',lambda event:canvas.itemconfigure(content_window,width=event.width))
     def fit_content():
         root.update_idletasks()
-        required=min(screen_h,content.winfo_reqheight()+40)
-        if required>root.winfo_height(): root.geometry(f'{root.winfo_width()}x{required}')
+        canvas.configure(scrollregion=canvas.bbox('all'))
         canvas.configure(scrollregion=canvas.bbox('all'))
     def scroll_content(event):
         if not isinstance(event.widget,(tk.Text,ttk.Treeview)):
             canvas.yview_scroll(-1 if event.delta>0 else 1,'units')
     root.bind_all('<MouseWheel>',scroll_content,add='+')
     events=queue.Queue(); lib=Library(events.put); server=None; tray=None
+    lib.auto_promoter.set_enabled(True)
     heading=ttk.Frame(content); heading.pack(fill='x',padx=20,pady=(16,4))
     try:
         from PIL import Image,ImageTk

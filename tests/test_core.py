@@ -84,6 +84,18 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(sqlite3.OperationalError):relocate_playback(source,target,self.root/'missing-schema.db')
         self.assertEqual((source/name).read_bytes(),b'cache')
         self.assertEqual((target/name).read_bytes(),b'cache')
+    def test_default_cache_location_and_window_bounds(self):
+        from cinema import default_playback_directory,window_dimensions
+        app=self.root/'app';data=self.root/'data';data.mkdir()
+        self.assertEqual(default_playback_directory(app,data),app/'playback')
+        (data/'playback').mkdir()
+        self.assertEqual(default_playback_directory(app,data),data/'playback')
+        self.assertEqual(window_dimensions(1920,1040)[:2],(1160,850))
+        self.assertEqual(window_dimensions(1920,1040,True)[:2],(1280,850))
+        for width,height in [(1366,728),(1024,720),(800,600)]:
+            w,h,min_w,min_h=window_dimensions(width,height,True)
+            self.assertLessEqual(w,width-48);self.assertLessEqual(h,height-48)
+            self.assertLessEqual(min_w,w);self.assertLessEqual(min_h,h)
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:
