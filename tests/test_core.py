@@ -96,6 +96,27 @@ class CoreTests(unittest.TestCase):
             w,h,min_w,min_h=window_dimensions(width,height,True)
             self.assertLessEqual(w,width-48);self.assertLessEqual(h,height-48)
             self.assertLessEqual(min_w,w);self.assertLessEqual(min_h,h)
+    def test_stopped_service_can_move_with_preferences_checked(self):
+        old=self.root/'old';old.mkdir();new=self.root/'new';name='6'*64+'.mp4';(old/name).write_bytes(b'completed cache')
+        lib=Library(lambda text:None,db_path=self.root/'stopped-move.db',config={'roots':[],'tags':{},'categories':[],'background_convert':True},playback_dir=old)
+        lib.auto_promoter.enabled=True
+        try:
+            lib.pause_processing()
+            self.assertTrue(lib.background_enabled);self.assertTrue(lib.auto_promoter.enabled)
+            self.assertIsNone(lib.cache_maintenance_blocker())
+            self.assertEqual(lib.relocate_playback(new)['moved'],1)
+            self.assertEqual((new/name).read_bytes(),b'completed cache')
+            self.assertEqual(lib.cleanup_playback()['removed'],0)
+            self.assertTrue(lib.background_enabled);self.assertTrue(lib.auto_promoter.enabled)
+            lib.scanning=True
+            self.assertIn('掃描',lib.cache_maintenance_blocker())
+            with self.assertRaises(ValueError):lib.relocate_playback(self.root/'another')
+            lib.scanning=False;lib.auto_promoter.busy=True
+            self.assertIn('保存',lib.cache_maintenance_blocker())
+            with self.assertRaises(ValueError):lib.cleanup_playback()
+            lib.auto_promoter.busy=False
+        finally:
+            lib.scanning=False;lib.auto_promoter.busy=False;lib.shutdown()
     def test_scanner_depth_modes_and_override(self):
         root=self.root/'media'
         for name in ['Series/1.mp4','Series/2.mkv','Series/deep/ignored.mp4','Single.flv']:

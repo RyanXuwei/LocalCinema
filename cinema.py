@@ -239,10 +239,23 @@ class Library:
                 if self.convert_worker is None:
                     self.convert_worker=threading.Thread(target=self._convert,daemon=True); self.convert_worker.start()
             return dict(self.conversions[key])
+    def cache_maintenance_blocker(self):
+        with self.lock:
+            if self.closing:return '程式正在退出，請完成退出後重新開啟。'
+            if self.cache_migrating:return '已有快取搬移或清理作業，請等待完成。'
+            if self.scanning:return '掃描尚未結束，請等待掃描完成。'
+            if self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
+                return '仍有轉檔或待轉項目，請先停止服務並等待停止完成。'
+            if self.auto_promoter.busy:return '目前單筆MP4保存／回收尚未結束，請等待完成。'
+            if self.background_enabled and not self.processing_paused:
+                return '背景預轉仍可執行，請先停止服務。'
+            if self.auto_promoter.enabled and not self.auto_promoter.paused:
+                return '自動保留尚未暫停，請先停止服務。'
+            return None
     def relocate_playback(self,destination,progress=None):
         with self.lock:
-            if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
-                raise ValueError('請先停止服務、關閉背景預轉與自動保留，並等待目前轉檔或掃描完成。')
+            blocker=self.cache_maintenance_blocker()
+            if blocker:raise ValueError(blocker)
             self.cache_migrating=True
         try:
             with self.conversion_store.lock:
@@ -255,8 +268,8 @@ class Library:
             with self.lock: self.cache_migrating=False
     def cleanup_playback(self,progress=None):
         with self.lock:
-            if self.cache_migrating or self.scanning or self.background_enabled or self.auto_promoter.enabled or self.auto_promoter.busy or self.convert_process or any(job['state'] in ('queued','converting') for job in self.conversions.values()):
-                raise ValueError('請停止服務與背景作業，等候轉檔完成後再清理。')
+            blocker=self.cache_maintenance_blocker()
+            if blocker:raise ValueError(blocker)
             self.cache_migrating=True
         try:
             moved=cleanup_moved_copies(self.db_path,progress=progress)
@@ -709,6 +722,9 @@ def build_cache_controls(parent,root,lib,service_running):
     def choose_cache():
         if service_running() or lib.cache_migrating or getattr(root,'cache_move_busy',False) or getattr(root,'conversion_busy',False):
             messagebox.showinfo('請先停止服務','請停止服務並等候保存作業完成後再搬移快取。',parent=root); return
+        blocker=lib.cache_maintenance_blocker()
+        if blocker:
+            messagebox.showinfo('目前無法搬移',blocker,parent=root);return
         folder=filedialog.askdirectory(title='選擇轉檔快取目錄（搬移既有快取）',parent=root)
         if not folder:return
         operation.update('準備搬移')
@@ -754,7 +770,7 @@ def build_cache_controls(parent,root,lib,service_running):
         root.after(200,finish)
     ttk.Button(space_row,text='檢查空間',command=check_space).pack(side='right',padx=4)
     clean_button=ttk.Button(space_row,text='清理已保存的重複快取',command=clean_cache);clean_button.pack(side='right',padx=4)
-    ttk.Label(parent,text='需先停止服務、關閉背景預轉與略過人工審核，並等候轉檔完成。僅搬移已完成快取；驗證後才清理舊檔，原始影片不搬移。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
+    ttk.Label(parent,text='先停止服務並等待停止完成，即可搬移或清理；背景預轉與略過人工審核可保留勾選。僅搬移已完成快取，驗證後才清理舊檔，原始影片不搬移。',style='Sub.TLabel',wraplength=800).pack(anchor='w',padx=20)
 
 
 
