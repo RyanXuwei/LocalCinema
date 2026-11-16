@@ -81,3 +81,6 @@ body.boss-mode #webModal{display:none}
 #webEmbedHint span{flex:1}
 #webEmbedHint button{display:inline-flex;gap:5px;align-items:center;padding:4px 10px;font-size:12px}
 #webEmbedHint .playerIcon{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5}
+.webEditCheck{display:flex!important;gap:8px;align-items:flex-start;font-size:13px}
+.webEditCheck input{display:inline-block!important;width:auto!important;margin:3px 0 0!important}
+#webBlockedMark[hidden]{display:none}

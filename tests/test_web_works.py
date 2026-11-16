@@ -146,6 +146,13 @@ class WebWorkTests(unittest.TestCase):
         self.assertEqual((item['frame'],item['frameReason']),('blocked','X-Frame-Options: SAMEORIGIN'));self.assertIsNotNone(item['frameChecked'])
         works.probe=lambda url:(_ for _ in ()).throw(OSError('offline'))
         self.assertEqual(works.check_frame(row['id'])['frame'],'unknown')
+    def test_open_in_tab_flag(self):
+        works=self.lib.web_works
+        row=works.add('site','https://login.example.test/','',open_in_tab=True);self.wait_idle()
+        self.assertTrue(self.lib.web_item(row['id'])['openInTab'])
+        works.update(row['id'],title='Renamed');self.lib.refresh_web();self.assertTrue(self.lib.web_item(row['id'])['openInTab'])
+        works.update(row['id'],open_in_tab=False);self.lib.refresh_web();self.assertFalse(self.lib.web_item(row['id'])['openInTab'])
+        other=works.add('site','https://plain.example.test/');self.wait_idle();self.assertFalse(self.lib.web_item(other['id'])['openInTab'])
     def test_group_kinds(self):
         groups=self.lib.source_groups
         with self.assertRaises(ValueError):groups.assign([0],'site')

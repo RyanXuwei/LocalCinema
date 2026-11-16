@@ -600,12 +600,12 @@ def make_handler(lib):
                 if action=='add':
                     group=str(data.get('group',''))
                     if group not in allowed:return self.reply(404,{'error':'不存在'})
-                    with lib.lock:row=lib.web_works.add(group,data.get('url'),data.get('title',''),data.get('notes',''))
+                    with lib.lock:row=lib.web_works.add(group,data.get('url'),data.get('title',''),data.get('notes',''),bool(data.get('openInTab',False)))
                     lib.refresh_web();return self.reply(200,{'id':row['id']})
                 item=lib.web_item(str(data.get('id','')))
                 if item is None or not allowed.intersection(item['groups']):return self.reply(404,{'error':'作品不存在'})
                 if action=='update':
-                    with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'),data.get('notes'))
+                    with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'),data.get('notes'),data.get('openInTab'))
                 elif action=='delete':
                     with lib.lock:lib.web_works.delete(item['id'],data.get('confirm'))
                 elif action=='check':
@@ -1224,13 +1224,15 @@ def _run(instance):
         ttk.Label(dialog,text='備註（選填，可多行）').pack(anchor='w',padx=18,pady=(10,2))
         notes=tk.Text(dialog,height=6,width=64,bg='#242d25',fg='#dedfd3',insertbackground='#dedfd3',relief='flat',wrap='word')
         notes.pack(fill='both',expand=True,padx=18);notes.insert('1.0',existing.get('notes','') if existing else '')
+        open_in_tab=tk.BooleanVar(value=bool(existing.get('openInTab')) if existing else False)
+        ttk.Checkbutton(dialog,text='一律以分頁開啟（不在映室內嵌入，適合需登入或會跳脫外框的網站）',variable=open_in_tab).pack(anchor='w',padx=18,pady=(8,0))
         ttk.Label(dialog,text='新增後會在背景開啟網站 10 秒並擷取快照。',wraplength=460).pack(anchor='w',padx=18,pady=8)
         result={}
         def save():
             try:
                 with lib.lock:
-                    if existing:lib.web_works.update(existing['id'],url.get(),title.get(),notes.get('1.0','end-1c'))
-                    else:lib.web_works.add(chosen_group(),url.get(),title.get(),notes.get('1.0','end-1c'))
+                    if existing:lib.web_works.update(existing['id'],url.get(),title.get(),notes.get('1.0','end-1c'),open_in_tab.get())
+                    else:lib.web_works.add(chosen_group(),url.get(),title.get(),notes.get('1.0','end-1c'),open_in_tab.get())
                 result['ok']=True;dialog.destroy()
             except ValueError as error:messagebox.showerror('無法儲存作品',str(error),parent=dialog)
         buttons=ttk.Frame(dialog);buttons.pack(fill='x',padx=18,pady=(4,14))

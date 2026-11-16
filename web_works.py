@@ -135,15 +135,16 @@ class WebWorks:
             if 'notes' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
             if 'frame_reason' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN frame_reason TEXT NOT NULL DEFAULT ''")
             if 'frame_checked' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN frame_checked REAL")
+            if 'open_in_tab' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN open_in_tab INTEGER NOT NULL DEFAULT 0")
     def web_group(self,group_id):
         group=self.groups.get(group_id)
         if group_kind(group)!=WEB_KIND:raise ValueError('此群組不是作品群組。')
         return group
     def rows(self,group_id=None):
         with self.db() as connection:
-            query='SELECT id,group_id,url,title,created,updated,snapshot,snapshot_at,frame,notes,frame_reason,frame_checked FROM web_works'
+            query='SELECT id,group_id,url,title,created,updated,snapshot,snapshot_at,frame,notes,frame_reason,frame_checked,open_in_tab FROM web_works'
             rows=connection.execute(query+(' WHERE group_id=?' if group_id else '')+' ORDER BY created,id',(group_id,) if group_id else ()).fetchall()
-        return [dict(zip(('id','group','url','title','created','updated','snapshot','snapshotAt','frame','notes','frameReason','frameChecked'),row)) for row in rows]
+        return [dict(zip(('id','group','url','title','created','updated','snapshot','snapshotAt','frame','notes','frameReason','frameChecked','openInTab'),row)) for row in rows]
     def get(self,work_id):
         if not isinstance(work_id,str) or not ID_PATTERN.fullmatch(work_id):raise ValueError('作品不存在。')
         found=[row for row in self.rows() if row['id']==work_id]
@@ -162,23 +163,24 @@ class WebWorks:
             if row['group'] not in valid:continue
             result.append({'id':row['id'],'kind':WEB_KIND,'title':row['title'],'url':row['url'],'updated':row['updated'],
                            'tags':[],'groups':[row['group']],'episodes':[],'frame':row['frame'],'snapshotAt':row['snapshotAt'],
-                           'snapshotPending':row['id'] in self.pending,'notes':row['notes'] or '','frameReason':row['frameReason'] or '','frameChecked':row['frameChecked'],'picture':str(self.snapshot_path(row) or '') or None})
+                           'snapshotPending':row['id'] in self.pending,'notes':row['notes'] or '','frameReason':row['frameReason'] or '','frameChecked':row['frameChecked'],'openInTab':bool(row['openInTab']),'picture':str(self.snapshot_path(row) or '') or None})
         return result
-    def add(self,group_id,url,title='',notes=''):
+    def add(self,group_id,url,title='',notes='',open_in_tab=False):
         self.web_group(group_id);url=normalize_url(url);notes=clean_notes(notes);now=time.time()
         if any(row['url']==url for row in self.rows(group_id)):raise ValueError('此群組已有相同網址。')
         work_id='w'+secrets.token_hex(10);locked=bool(str(title or '').strip())
         with self.db() as connection:
-            connection.execute('INSERT INTO web_works(id,group_id,url,title,created,updated,title_locked,notes) VALUES (?,?,?,?,?,?,?,?)',
-                               (work_id,group_id,url,clean_title(title,url),now,now,int(locked),notes))
+            connection.execute('INSERT INTO web_works(id,group_id,url,title,created,updated,title_locked,notes,open_in_tab) VALUES (?,?,?,?,?,?,?,?,?)',
+                               (work_id,group_id,url,clean_title(title,url),now,now,int(locked),notes,int(bool(open_in_tab))))
         self.queue_snapshot(work_id);return self.get(work_id)
-    def update(self,work_id,url=None,title=None,notes=None):
+    def update(self,work_id,url=None,title=None,notes=None,open_in_tab=None):
         row=self.get(work_id);new_url=normalize_url(url) if url is not None else row['url']
         if new_url!=row['url'] and any(other['url']==new_url for other in self.rows(row['group'])):raise ValueError('此群組已有相同網址。')
         new_title=clean_title(title,new_url) if title is not None else row['title']
         new_notes=clean_notes(notes) if notes is not None else row['notes'] or ''
         with self.db() as connection:
             connection.execute('UPDATE web_works SET notes=? WHERE id=?',(new_notes,work_id))
+            if open_in_tab is not None:connection.execute('UPDATE web_works SET open_in_tab=? WHERE id=?',(int(bool(open_in_tab)),work_id))
             connection.execute('UPDATE web_works SET url=?,title=?,updated=?,title_locked=CASE WHEN ? THEN 1 ELSE title_locked END'+(",frame='unknown'" if new_url!=row['url'] else '')+' WHERE id=?',
                                (new_url,new_title,time.time(),title is not None,work_id))
         if new_url!=row['url']:self.queue_snapshot(work_id)

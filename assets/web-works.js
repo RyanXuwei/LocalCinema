@@ -69,8 +69,8 @@ function buildWebViewer() {
 <div id="webStage">
   <div id="webCanvas"><img id="webSnapshot" alt="" draggable="false"><div id="webFrameBox"></div></div>
   <div class="privacy-glass" aria-hidden="true"></div>
-  <div id="webBlocked" hidden role="alertdialog" aria-labelledby="webBlockedTitle"><h3 id="webBlockedTitle">此網站禁止被嵌入</h3><p>網站的安全設定不允許在其他頁面（包括映室）內顯示，目前畫面是快照。請改用分頁開啟瀏覽。</p><p id="webBlockedReason"></p><div><button id="webBlockedOpen" class="primary"></button><button id="webTryEmbed">仍嘗試嵌入</button></div><label class="webBlockedRemember"><input type="checkbox" id="webBlockedDirect"> 之後點選禁止嵌入的作品時，直接以分頁開啟</label></div>
-  <div id="webEmbedHint" hidden role="status"><span id="webEmbedHintText"></span><button id="webEmbedHintOpen"></button><button id="webEmbedHintClose" aria-label="關閉提示">✕</button></div>
+  <div id="webBlocked" hidden role="alertdialog" aria-labelledby="webBlockedTitle"><h3 id="webBlockedTitle">此網站禁止被嵌入</h3><p id="webBlockedText"></p><p id="webBlockedReason"></p><div><button id="webBlockedOpen" class="primary"></button><button id="webTryEmbed">仍嘗試嵌入</button><button id="webBlockedMark">此作品一律以分頁開啟</button></div><label class="webBlockedRemember"><input type="checkbox" id="webBlockedDirect"> 之後點選禁止嵌入的作品時，直接以分頁開啟</label></div>
+  <div id="webEmbedHint" hidden role="status"><span id="webEmbedHintText"></span><button id="webEmbedHintOpen"></button><button id="webEmbedHintMark">記住：一律以分頁開啟</button><button id="webEmbedHintClose" aria-label="關閉提示">✕</button></div>
   <div id="webHead"><div class="webTitleBlock"><h2 id="webTitle"></h2><a id="webHost" target="_blank" rel="noopener noreferrer"></a><span id="webState" role="status"></span></div>
     <div class="headActions"><button id="webBoss" title="隱藏畫面">Hide</button><button id="webClose" aria-label="關閉作品檢視"></button></div></div>
   <div id="webToolbar" class="playerTools">
@@ -119,6 +119,7 @@ function buildWebViewer() {
 <label>網址<input id="webEditUrl" type="text" inputmode="url" required maxlength="2048" placeholder="https://example.com/" autocomplete="off"></label>
 <label>標題（選填，留白使用網頁標題）<input id="webEditTitle" maxlength="120" autocomplete="off"></label>
 <label>備註（選填，可多行）<textarea id="webEditNotes" rows="5" maxlength="5000" placeholder="例如：作品說明、帳號提示、待修事項…"></textarea></label>
+<label class="webEditCheck"><input type="checkbox" id="webEditOpenInTab"> 一律以分頁開啟（不在映室內嵌入，適合需登入或會跳脫外框的網站）</label>
 <p class="muted">新增後會在背景開啟網站 10 秒並擷取快照。</p><p id="webEditError" role="alert"></p>
 <div class="dialogActions"><button type="button" id="webEditCancel">取消</button><button class="primary" id="webEditSave">儲存</button></div></form>`;
     document.body.append(form);
@@ -156,7 +157,11 @@ function unloadWebFrame() {
 
 function showWebBlocked(item) {
     $('webBlocked').hidden = false;
-    $('webBlockedReason').textContent = item.frameReason ? '偵測到：' + item.frameReason : '';
+    const manual = item.openInTab;
+    $('webBlockedTitle').textContent = manual ? '此作品設定為以分頁開啟' : '此網站禁止被嵌入';
+    $('webBlockedText').textContent = manual ? '你已將這個作品標記為一律以分頁開啟，目前畫面是快照。可在「編輯」中取消標記。' : '網站的安全設定不允許在其他頁面（包括映室）內顯示，目前畫面是快照。請改用分頁開啟瀏覽。';
+    $('webBlockedMark').hidden = manual;
+    $('webBlockedReason').textContent = !manual && item.frameReason ? '偵測到：' + item.frameReason : '';
     $('webBlockedDirect').checked = !!readWebSetting('direct-tab', 0);
     $('webState').textContent = '此網站禁止嵌入';
     requestAnimationFrame(() => $('webBlockedOpen').focus());
@@ -184,11 +189,12 @@ async function loadWebFrame(skipCheck = false) {
     $('webBlocked').hidden = true; $('webEmbedHint').hidden = true;
     if (!item || bossActive) return;
     const request = ++webView.loadRequest;
-    if (!skipCheck && !webView.forceEmbed) {
+    if (!skipCheck && !webView.forceEmbed && !item.openInTab) {
         item = await verifyWebFrame(item);
         if (request !== webView.loadRequest || webView.item !== item) return;
         syncWebToolbar();
     }
+    if (item.openInTab && !webView.forceEmbed) { showWebBlocked(item); return }
     if (!webCanEmbed(item)) { showWebBlocked(item); return }
     if (item.frame === 'unknown' && !webView.forceEmbed) showWebEmbedHint(item);
     const frame = document.createElement('iframe');
@@ -279,7 +285,7 @@ function drawWebItem() {
 function openWebWork(item, options = {}) {
     buildWebViewer();
     // A card click is a user gesture, so a known-blocked work can go straight to a new tab.
-    if (!options.automatic && item.frame === 'blocked' && readWebSetting('direct-tab', 0)) {
+    if (!options.automatic && (item.openInTab || item.frame === 'blocked' && readWebSetting('direct-tab', 0))) {
         if (window.open(item.url, '_blank', 'noopener,noreferrer') !== undefined) {
             post('/api/works/visit', { id: item.id, session: webSession() }).catch(() => { });
             toast('此網站禁止嵌入，已改用分頁開啟'); return;
@@ -339,18 +345,18 @@ async function saveWebWork(existing) {
     buildWebViewer();
     const dialog = $('webEditDialog');
     $('webEditHeading').textContent = existing ? '編輯作品' : '新增作品網址';
-    $('webEditUrl').value = existing?.url || ''; $('webEditTitle').value = existing?.title || ''; $('webEditNotes').value = existing?.notes || ''; $('webEditError').textContent = '';
+    $('webEditUrl').value = existing?.url || ''; $('webEditTitle').value = existing?.title || ''; $('webEditNotes').value = existing?.notes || ''; $('webEditOpenInTab').checked = !!existing?.openInTab; $('webEditError').textContent = '';
     return new Promise(resolve => {
         const done = value => { $('webEditForm').onsubmit = $('webEditCancel').onclick = null; if (dialog.open) dialog.close(); resolve(value) };
         $('webEditCancel').onclick = () => done(false);
         $('webEditForm').onsubmit = async event => {
             event.preventDefault();
-            const url = $('webEditUrl').value.trim(), title = $('webEditTitle').value.trim(), notes = $('webEditNotes').value;
+            const url = $('webEditUrl').value.trim(), title = $('webEditTitle').value.trim(), notes = $('webEditNotes').value, openInTab = $('webEditOpenInTab').checked;
             $('webEditSave').disabled = true; $('webEditError').textContent = '';
             try {
                 const response = await fetch(existing ? '/api/works/update' : '/api/works/add', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cinema-Token': token },
-                    body: JSON.stringify(existing ? { id: existing.id, url, title, notes } : { group: currentGroupId, url, title, notes })
+                    body: JSON.stringify(existing ? { id: existing.id, url, title, notes, openInTab } : { group: currentGroupId, url, title, notes, openInTab })
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw Error(data.error || '儲存失敗');
@@ -447,6 +453,15 @@ function installWebControls() {
     $('webEmbedHintOpen').innerHTML = webIcon('external') + '以分頁開啟';
     $('webEmbedHintOpen').onclick = open;
     $('webEmbedHintClose').onclick = () => { $('webEmbedHint').hidden = true };
+    const markOpenInTab = async () => {
+        const item = webView.item; if (!item) return;
+        try {
+            await post('/api/works/update', { id: item.id, openInTab: true });
+            item.openInTab = true; webView.forceEmbed = false; toast('已標記：此作品之後一律以分頁開啟');
+            unloadWebFrame(); $('webEmbedHint').hidden = true; showWebBlocked(item); refreshWebNow();
+        } catch { toast('無法更新作品設定') }
+    };
+    $('webBlockedMark').onclick = markOpenInTab; $('webEmbedHintMark').onclick = markOpenInTab;
     $('webClose').onclick = closeWebWork;
     $('webBoss').onclick = () => bossMode();
     $('webModal').addEventListener('cancel', event => { event.preventDefault(); if (document.fullscreenElement) document.exitFullscreen().catch(() => { }); else closeWebWork() });
@@ -545,7 +560,7 @@ function decorateWebCard(item, visual, meta) {
     meta.append(tab, remove);
 }
 
-function webBadgeText(item) { return item.frame === 'blocked' ? '分頁瀏覽' : '網頁' }
+function webBadgeText(item) { return item.openInTab || item.frame === 'blocked' ? '分頁瀏覽' : '網頁' }
 
 function webAfterRefresh() {
     const dialog = document.getElementById('webModal');
