@@ -90,6 +90,33 @@ class WebWorkTests(unittest.TestCase):
             self.assertEqual(request('/api/works/snapshot-upload',{'id':row['id'],'image':'data:text/plain;base64,aGk='}),400)
             self.assertEqual(request('/api/works/snapshot',{'id':row['id'],'now':True}),200)
         finally:server.shutdown();server.server_close()
+    def test_notes_and_old_table_migration(self):
+        import sqlite3
+        from web_works import WebWorks
+        works=self.lib.web_works
+        row=works.add('site','https://example.test/notes','',' 第一行\r\n第二行  \n\n')
+        self.assertEqual(works.get(row['id'])['notes'],' 第一行\n第二行')
+        works.update(row['id'],notes='改過');self.assertEqual(works.get(row['id'])['notes'],'改過')
+        works.update(row['id'],title='只改標題');self.assertEqual(works.get(row['id'])['notes'],'改過')
+        with self.assertRaises(ValueError):works.update(row['id'],notes='x'*5001)
+        self.wait_idle();self.assertEqual(self.lib.web_item(row['id'])['notes'],'改過')
+        old=self.root/'old.db'
+        connection=sqlite3.connect(old)
+        with connection:
+            connection.execute('''CREATE TABLE web_works(id TEXT PRIMARY KEY, group_id TEXT NOT NULL, url TEXT NOT NULL,
+                title TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL, snapshot TEXT, snapshot_at REAL,
+                frame TEXT NOT NULL DEFAULT 'unknown', title_locked INTEGER NOT NULL DEFAULT 0)''')
+            connection.execute("INSERT INTO web_works(id,group_id,url,title,created,updated) VALUES (?,'site','https://example.test/','Old',0,0)",('w'+'0'*20,))
+        connection.close()
+        from contextlib import contextmanager
+        @contextmanager
+        def db():
+            connection=sqlite3.connect(old)
+            try:
+                with connection:yield connection
+            finally:connection.close()
+        migrated=WebWorks(db,self.root,self.lib.source_groups)
+        self.assertEqual(migrated.get('w'+'0'*20)['notes'],'')
     def test_group_kinds(self):
         groups=self.lib.source_groups
         with self.assertRaises(ValueError):groups.assign([0],'site')

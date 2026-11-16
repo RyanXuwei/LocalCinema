@@ -59,3 +59,14 @@ body.boss-mode #webModal{display:none}
   #webToolbar button{width:30px;height:30px}
   #webPosition{display:none}
 }
+#webEditForm textarea{display:block;width:100%;margin-top:6px;padding:9px 10px;box-sizing:border-box;resize:vertical;min-height:96px;font:inherit;line-height:1.5;background:#242d25;border:1px solid #465244;border-radius:6px;color:#dedfd3}
+#webNotes{position:absolute;right:12px;top:58px;bottom:58px;width:min(340px,calc(100% - 24px));z-index:5;display:flex;flex-direction:column;background:#141a15f2;border:1px solid #4d5b4a;border-radius:6px;box-shadow:0 10px 30px #0009}
+#webNotes[hidden]{display:none}
+.webNotesHead{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #3c493d}
+.webNotesHead h3{margin:0;font-size:14px;font-weight:500}
+.webNotesHead div{display:flex;gap:6px}.webNotesHead button{padding:4px 10px;font-size:12px}
+#webNotesText{flex:1;overflow:auto;padding:12px;white-space:pre-wrap;word-break:break-word;line-height:1.65;font-size:13px;color:#e2e2d6;user-select:text}
+#webNotesText.empty{color:#8f9a8a}
+#webNotesToggle.has-notes::after{content:'';position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:#d7c79a}
+.webCardNote{flex:1 1 100%;display:flex;align-items:center;gap:4px;font-size:10px;color:#cfc8a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.webCardNote .playerIcon{width:12px!important;height:12px!important;flex:none;fill:none;stroke:currentColor;stroke-width:1.5}

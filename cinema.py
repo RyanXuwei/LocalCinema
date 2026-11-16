@@ -594,12 +594,12 @@ def make_handler(lib):
                 if action=='add':
                     group=str(data.get('group',''))
                     if group not in allowed:return self.reply(404,{'error':'不存在'})
-                    with lib.lock:row=lib.web_works.add(group,data.get('url'),data.get('title',''))
+                    with lib.lock:row=lib.web_works.add(group,data.get('url'),data.get('title',''),data.get('notes',''))
                     lib.refresh_web();return self.reply(200,{'id':row['id']})
                 item=lib.web_item(str(data.get('id','')))
                 if item is None or not allowed.intersection(item['groups']):return self.reply(404,{'error':'作品不存在'})
                 if action=='update':
-                    with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'))
+                    with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'),data.get('notes'))
                 elif action=='delete':
                     with lib.lock:lib.web_works.delete(item['id'],data.get('confirm'))
                 elif action=='snapshot' and data.get('now'):

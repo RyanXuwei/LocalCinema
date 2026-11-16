@@ -29,7 +29,7 @@
 | cache_copies | 已保存 MP4 與快取 SHA256 對應，供安全清理 |
 | cache_moves | 已提交搬移的舊／新副本及 SHA256，供清理重試 |
 | media_replacements | 新 MP4 路徑 → 原影片／集數 ID、名稱與標題 |
-| web_works | 作品 ID、group_id、正規化 http(s) 網址、標題、建立／更新時間、快照檔名與時間、frame（allowed／blocked／unknown）、title_locked |
+| web_works | 作品 ID、group_id、正規化 http(s) 網址、標題、建立／更新時間、快照檔名與時間、frame（allowed／blocked／unknown）、title_locked、notes（v2.2.0，多行備註，舊表啟動時以 ALTER TABLE 補欄位，預設空字串） |
 
 轉檔狀態：ready → confirmed → saved → 完成後移除記錄。saved 代表 MP4 已保存但原檔仍可能待回收，不能因其已存在就當成完成。舊版 replaced 記錄於啟動清除，識別別名仍保留。
 

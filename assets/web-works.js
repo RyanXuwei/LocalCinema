@@ -34,6 +34,7 @@ function webIcon(name) {
         contract: '<path d="M4 9h5V4m6 0v5h5M9 20v-5H4m16 0h-5v5"/>',
         close: '<path d="m6 6 12 12M18 6 6 18"/>',
         add: '<path d="M12 5v14M5 12h14"/>',
+        note: '<path d="M6 3h9l4 4v14H6Z"/><path d="M15 3v4h4M9 11h7M9 15h7M9 19h4"/>',
         globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'
     };
     return '<svg class="playerIcon" aria-hidden="true" focusable="false" viewBox="0 0 24 24">' + (paths[name] || paths.globe) + '</svg>';
@@ -92,10 +93,12 @@ function buildWebViewer() {
       <button id="webEdit" title="編輯標題或網址" aria-label="編輯作品"></button>
       <button id="webDelete" title="刪除作品" aria-label="刪除作品"></button>
       <button id="webOpenTab" title="以分頁開啟（O）" aria-label="以分頁開啟"></button>
+      <button id="webNotesToggle" aria-expanded="false" title="備註（N）" aria-label="備註"></button>
       <button id="webHelpToggle" aria-expanded="false" title="操作說明" aria-label="操作說明"></button>
       <button id="webFullscreen" title="全螢幕（F）" aria-label="全螢幕"></button>
     </div>
   </div>
+  <aside id="webNotes" hidden aria-label="作品備註"><div class="webNotesHead"><h3>備註</h3><div><button id="webNotesEdit">編輯</button><button id="webNotesClose" aria-label="收起備註">收起</button></div></div><div id="webNotesText"></div></aside>
   <section id="webHelp" class="help" hidden aria-label="作品檢視說明"><div class="helpHeading"><h3>作品檢視</h3><button id="webHelpClose">收起</button></div>
     <div class="shortcutColumns"><div>
       <div class="shortcutRow"><span>上一個／下一個作品</span><span><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
@@ -114,6 +117,7 @@ function buildWebViewer() {
     form.innerHTML = `<form method="dialog" id="webEditForm"><h2 id="webEditHeading">新增作品網址</h2>
 <label>網址<input id="webEditUrl" type="text" inputmode="url" required maxlength="2048" placeholder="https://example.com/" autocomplete="off"></label>
 <label>標題（選填，留白使用網頁標題）<input id="webEditTitle" maxlength="120" autocomplete="off"></label>
+<label>備註（選填，可多行）<textarea id="webEditNotes" rows="5" maxlength="5000" placeholder="例如：作品說明、帳號提示、待修事項…"></textarea></label>
 <p class="muted">新增後會在背景開啟網站 10 秒並擷取快照。</p><p id="webEditError" role="alert"></p>
 <div class="dialogActions"><button type="button" id="webEditCancel">取消</button><button class="primary" id="webEditSave">儲存</button></div></form>`;
     document.body.append(form);
@@ -206,8 +210,24 @@ function syncWebToolbar() {
     $('webPrevious').disabled = $('webNext').disabled = pool.length < 2 && !(pool.length === 1 && pool[0].id !== item.id);
 }
 
+function drawWebNotes() {
+    const item = webView.item, notes = (item?.notes || '').trim();
+    $('webNotesText').textContent = notes || '尚無備註。按「編輯」可新增多行備註。';
+    $('webNotesText').classList.toggle('empty', !notes);
+    $('webNotesToggle').classList.toggle('has-notes', !!notes);
+    $('webNotesToggle').title = notes ? '備註（N）' : '備註：尚無內容（N）';
+}
+
+function setWebNotesOpen(open) {
+    $('webNotes').hidden = !open;
+    $('webNotesToggle').setAttribute('aria-expanded', String(open));
+    $('webNotesToggle').classList.toggle('is-on', open);
+    saveWebSetting('notes-open', open ? 1 : 0);
+}
+
 function drawWebItem() {
     const item = webView.item;
+    drawWebNotes();
     $('webTitle').textContent = item.title;
     $('webHost').textContent = webHost(item.url); $('webHost').href = item.url;
     $('webSnapshot').src = '/poster/' + item.id + '?v=' + (item.snapshotAt || 0);
@@ -272,18 +292,18 @@ async function saveWebWork(existing) {
     buildWebViewer();
     const dialog = $('webEditDialog');
     $('webEditHeading').textContent = existing ? '編輯作品' : '新增作品網址';
-    $('webEditUrl').value = existing?.url || ''; $('webEditTitle').value = existing?.title || ''; $('webEditError').textContent = '';
+    $('webEditUrl').value = existing?.url || ''; $('webEditTitle').value = existing?.title || ''; $('webEditNotes').value = existing?.notes || ''; $('webEditError').textContent = '';
     return new Promise(resolve => {
         const done = value => { $('webEditForm').onsubmit = $('webEditCancel').onclick = null; if (dialog.open) dialog.close(); resolve(value) };
         $('webEditCancel').onclick = () => done(false);
         $('webEditForm').onsubmit = async event => {
             event.preventDefault();
-            const url = $('webEditUrl').value.trim(), title = $('webEditTitle').value.trim();
+            const url = $('webEditUrl').value.trim(), title = $('webEditTitle').value.trim(), notes = $('webEditNotes').value;
             $('webEditSave').disabled = true; $('webEditError').textContent = '';
             try {
                 const response = await fetch(existing ? '/api/works/update' : '/api/works/add', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cinema-Token': token },
-                    body: JSON.stringify(existing ? { id: existing.id, url, title } : { group: currentGroupId, url, title })
+                    body: JSON.stringify(existing ? { id: existing.id, url, title, notes } : { group: currentGroupId, url, title, notes })
                 });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw Error(data.error || '儲存失敗');
@@ -370,7 +390,7 @@ async function retakeWebSnapshot() {
 
 function installWebControls() {
     buildWebViewer();
-    const icons = [['webReload', 'reload'], ['webPrevious', 'previous'], ['webNext', 'next'], ['webRandom', 'shuffle'], ['webFavorite', 'heart'], ['webBrightness', 'brightness'], ['webTags', 'tag'], ['webSnapshotRetake', 'camera'], ['webCopy', 'copy'], ['webEdit', 'edit'], ['webDelete', 'trash'], ['webOpenTab', 'external'], ['webHelpToggle', 'help'], ['webFullscreen', 'expand'], ['webClose', 'close']];
+    const icons = [['webReload', 'reload'], ['webPrevious', 'previous'], ['webNext', 'next'], ['webRandom', 'shuffle'], ['webFavorite', 'heart'], ['webBrightness', 'brightness'], ['webTags', 'tag'], ['webSnapshotRetake', 'camera'], ['webCopy', 'copy'], ['webEdit', 'edit'], ['webDelete', 'trash'], ['webOpenTab', 'external'], ['webHelpToggle', 'help'], ['webNotesToggle', 'note'], ['webFullscreen', 'expand'], ['webClose', 'close']];
     for (const [id, name] of icons) $(id).innerHTML = webIcon(name);
     $('webBlockedOpen').innerHTML = webIcon('external') + '以分頁開啟';
     const open = () => { if (webView.item) window.open(webView.item.url, '_blank', 'noopener,noreferrer') };
@@ -398,8 +418,12 @@ function installWebControls() {
         if (!webView.item) return;
         try { await navigator.clipboard.writeText(webView.item.url); toast('已複製網址') } catch { toast(webView.item.url) }
     };
-    $('webEdit').onclick = async () => { if (webView.item && await saveWebWork(webView.item)) loadWebFrame() };
+    $('webEdit').onclick = async () => { if (webView.item) await saveWebWork(webView.item) };
     $('webDelete').onclick = async () => { const item = webView.item; if (await deleteWebWork(item) && webView.item === item) closeWebWork() };
+    $('webNotesToggle').onclick = () => setWebNotesOpen($('webNotes').hidden);
+    $('webNotesClose').onclick = () => setWebNotesOpen(false);
+    $('webNotesEdit').onclick = () => $('webEdit').click();
+    if (readWebSetting('notes-open', 0)) setWebNotesOpen(true);
     const toggleHelp = force => { const help = $('webHelp'); help.hidden = force ?? !help.hidden; $('webHelpToggle').setAttribute('aria-expanded', String(!help.hidden)) };
     $('webHelpToggle').onclick = () => toggleHelp(); $('webHelpClose').onclick = () => toggleHelp(true);
     const updateFull = () => { const full = !!document.fullscreenElement; $('webFullscreen').innerHTML = webIcon(full ? 'contract' : 'expand'); $('webFullscreen').title = full ? '退出全螢幕（F）' : '全螢幕（F）'; requestAnimationFrame(applyWebLayout) };
@@ -410,7 +434,7 @@ function installWebControls() {
         if (!$('webModal').open || $('webEditDialog').open || $('webConfirm').open || $('tagDialog')?.open) return;
         if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
         const key = event.key.toLowerCase();
-        const actions = { arrowleft: () => stepWebWork(-1), arrowright: () => stepWebWork(1), r: () => loadWebFrame(), p: () => $('webFreeze').click(), o: open, f: () => $('webFullscreen').click() };
+        const actions = { arrowleft: () => stepWebWork(-1), arrowright: () => stepWebWork(1), r: () => loadWebFrame(), p: () => $('webFreeze').click(), o: open, f: () => $('webFullscreen').click(), n: () => $('webNotesToggle').click() };
         if (actions[key]) { event.preventDefault(); actions[key]() }
     });
     $('webEditDialog').addEventListener('cancel', () => $('webEditCancel').click());
@@ -460,6 +484,13 @@ function decorateWebCard(item, visual, meta) {
     remove.className = 'webCardAction webCardDelete'; remove.innerHTML = webIcon('trash'); remove.title = '刪除作品'; remove.setAttribute('aria-label', '刪除作品 ' + item.title);
     remove.onclick = () => deleteWebWork(item);
     meta.prepend(host);
+    const notes = (item.notes || '').trim();
+    if (notes) {
+        const note = document.createElement('span');
+        note.className = 'webCardNote'; note.title = notes;
+        note.innerHTML = webIcon('note'); note.append(document.createTextNode(notes.split('\n')[0]));
+        host.after(note);
+    }
     meta.append(tab, remove);
 }
 
