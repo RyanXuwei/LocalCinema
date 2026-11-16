@@ -7,6 +7,8 @@ from urllib.request import Request,urlopen
 WEB_KIND='web'
 MEDIA_KIND='media'
 SNAPSHOT_DELAY_MS=10000
+IMMEDIATE_DELAY_MS=1500
+UPLOAD_LIMIT=12*1024*1024
 SNAPSHOT_SIZE=(1280,800)
 ID_PATTERN=re.compile(r'w[0-9a-f]{20}')
 
@@ -180,14 +182,44 @@ class WebWorks:
             finally:
                 with self.lock:self.pending.discard(work_id)
                 self.on_change()
-    def refresh_snapshot(self,work_id):
+    def capture_now(self,work_id):
+        """Synchronous recapture with only a short settle time, for the viewer's retake button."""
+        with self.lock:
+            if work_id in self.pending:raise ValueError('快照正在擷取中，請稍候。')
+            self.pending.add(work_id)
+        try:return self.refresh_snapshot(work_id,IMMEDIATE_DELAY_MS)
+        finally:
+            with self.lock:self.pending.discard(work_id)
+            self.on_change()
+    def store_snapshot(self,work_id,data):
+        """Save an image the browser captured from the viewer as this work's preview."""
+        row=self.get(work_id)
+        if not isinstance(data,(bytes,bytearray)) or not 0<len(data)<=UPLOAD_LIMIT:raise ValueError('快照圖片大小錯誤。')
+        from PIL import Image
+        import io
+        try:
+            with Image.open(io.BytesIO(data)) as image:
+                if image.format not in ('JPEG','PNG','WEBP'):raise ValueError('快照圖片格式錯誤。')
+                if image.width*image.height>40000000 or image.width<16 or image.height<16:raise ValueError('快照圖片尺寸錯誤。')
+                image=image.convert('RGB')
+                if image.width>1600:image=image.resize((1600,round(image.height*1600/image.width)))
+                self.folder.mkdir(parents=True,exist_ok=True)
+                name=work_id+'-'+secrets.token_hex(4)+'.jpg';temporary=self.folder/(name+'.tmp')
+                image.save(temporary,'JPEG',quality=88);temporary.replace(self.folder/name)
+        except (OSError,Image.DecompressionBombError) as error:raise ValueError('無法讀取快照圖片。') from error
+        with self.db() as connection:
+            connection.execute('UPDATE web_works SET snapshot=?,snapshot_at=? WHERE id=?',(name,time.time(),work_id))
+        old=self.snapshot_path(row)
+        if old and old.name!=name:old.unlink(missing_ok=True)
+        self.on_change();return True
+    def refresh_snapshot(self,work_id,delay_ms=SNAPSHOT_DELAY_MS):
         try:row=self.get(work_id)
         except ValueError:return False
         policy='unknown';title=''
         try:policy,title=self.probe(row['url'])
         except Exception as error:self.log(f'作品網址無法讀取標頭：{error}')
         browser=self.browser or find_browser();name=work_id+'-'+secrets.token_hex(4)+'.jpg';captured=False
-        if browser:captured=bool(self.capture(browser,row['url'],self.folder/name))
+        if browser:captured=bool(self.capture(browser,row['url'],self.folder/name,delay_ms=delay_ms))
         else:self.log('找不到 Edge 或 Chrome，無法擷取作品快照。')
         try:current=self.get(work_id)
         except ValueError:

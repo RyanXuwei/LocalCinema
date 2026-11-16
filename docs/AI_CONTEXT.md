@@ -1,6 +1,6 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v2.1.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-16。適用程式版本：v2.1.1（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
@@ -26,6 +26,12 @@
 - 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
 - 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
 - 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
+
+## 作品群組修正（v2.1.1）
+
+- Short 作品卡不用 installShortScrub，改用 installWebShortGesture：滑鼠拖曳捲動、放開超過 40px 換卡，移動超過 8px、捲動過或按壓超過 600ms 都不觸發點擊。
+- 重新擷取：getDisplayMedia(preferCurrentTab)＋CropTarget（可用時）擷取檢視器區域上傳；任何失敗都退回主機 capture_now（virtual-time 1.5 秒，同步回應）。內建瀏覽器窗格會自動拒絕分頁擷取，所以實測走的是主機路徑；真實 Edge／Chrome 的分享提示路徑未實測。
+- 新增後 refreshWebNow 等待輪詢結束再刷新，watchWebSnapshots 在有 snapshotPending 時每 1.5 秒刷新。
 
 ## 品牌署名開關（v2.1.0）
 

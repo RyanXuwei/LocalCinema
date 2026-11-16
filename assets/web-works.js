@@ -288,7 +288,7 @@ async function saveWebWork(existing) {
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) throw Error(data.error || '儲存失敗');
                 toast(existing ? '已更新作品' : '已加入作品，快照擷取中…');
-                done(true); refresh();
+                done(true); await refreshWebNow(); watchWebSnapshots();
             } catch (error) { $('webEditError').textContent = error.message || '儲存失敗' }
             finally { $('webEditSave').disabled = false }
         };
@@ -302,6 +302,70 @@ async function deleteWebWork(item) {
     if (!await webConfirm('再次確認刪除', '此操作無法復原。確定要刪除這個作品嗎？', '確定刪除')) return false;
     try { await post('/api/works/delete', { id: item.id, confirm: item.id }); toast('已刪除作品'); refresh(); return true }
     catch { toast('刪除失敗，請稍後再試'); return false }
+}
+
+// Refresh now even if a poll is in flight, so new or recaptured works show at once.
+async function refreshWebNow() {
+    for (let i = 0; i < 40 && busy; i++) await new Promise(resolve => setTimeout(resolve, 100));
+    await refresh();
+}
+
+let webPendingTimer = null;
+function watchWebSnapshots() {
+    clearTimeout(webPendingTimer);
+    if (library.some(item => item.kind === 'web' && item.snapshotPending)) webPendingTimer = setTimeout(async () => { await refreshWebNow(); watchWebSnapshots() }, 1500);
+}
+
+async function captureVisibleWork() {
+    // Tab capture only: the cross-origin site cannot be read directly, but the composited tab can.
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser', frameRate: 5 }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude' });
+    const track = stream.getVideoTracks()[0];
+    const wrong = () => Object.assign(new Error('請選擇目前這個分頁'), { name: 'WrongSurface' });
+    try {
+        const surface = track.getSettings().displaySurface;
+        if (surface && surface !== 'browser') throw wrong();
+        let cropped = false;
+        if (typeof CropTarget !== 'undefined' && track.cropTo) {
+            try { await track.cropTo(await CropTarget.fromElement($('webCanvas'))); cropped = true } catch { throw wrong() }
+        }
+        const video = document.createElement('video');
+        video.muted = true; video.playsInline = true; video.srcObject = stream;
+        await video.play();
+        await new Promise(resolve => setTimeout(resolve, 400));
+        const canvas = document.createElement('canvas'), area = $('webCanvas').getBoundingClientRect();
+        let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
+        if (!cropped) {
+            const scale = video.videoWidth / window.innerWidth;
+            sx = area.left * scale; sy = area.top * scale; sw = area.width * scale; sh = area.height * scale;
+        }
+        canvas.width = Math.round(Math.min(1600, sw)); canvas.height = Math.round(canvas.width * sh / sw);
+        canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        video.srcObject = null;
+        return canvas.toDataURL('image/jpeg', 0.88);
+    } finally { stream.getTracks().forEach(t => t.stop()) }
+}
+
+async function retakeWebSnapshot() {
+    const item = webView.item, button = $('webSnapshotRetake');
+    if (!item || button.disabled) return;
+    button.disabled = true;
+    try {
+        if (webView.live && window.isSecureContext && navigator.mediaDevices?.getDisplayMedia) {
+            try {
+                const image = await captureVisibleWork();
+                await post('/api/works/snapshot-upload', { id: item.id, image });
+                toast('已將目前畫面設為預覽圖');
+                await refreshWebNow(); return;
+            } catch { /* picker declined, unsupported or wrong surface: fall back to the host capture */ }
+        }
+        toast('正在重新擷取網頁畫面…');
+        const response = await fetch('/api/works/snapshot', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Cinema-Token': token }, body: JSON.stringify({ id: item.id, now: true }) });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw Error(data.error || '擷取失敗');
+        toast('已重新擷取並設為預覽圖');
+        await refreshWebNow();
+    } catch (error) { toast(error.message || '擷取失敗') }
+    finally { button.disabled = false }
 }
 
 function installWebControls() {
@@ -329,10 +393,7 @@ function installWebControls() {
         try { const value = !item.favorite; await post('/api/favorite', { id: item.id, favorite: value }); item.favorite = value; syncWebToolbar(); refresh() } catch { toast('無法更新我的最愛') }
     };
     $('webTags').onclick = () => { if (webView.item) openQuickTags(webView.item) };
-    $('webSnapshotRetake').onclick = async () => {
-        if (!webView.item) return;
-        try { await post('/api/works/snapshot', { id: webView.item.id }); toast('已排入快照擷取，約 10～30 秒後更新') } catch { toast('無法排入快照擷取') }
-    };
+    $('webSnapshotRetake').onclick = retakeWebSnapshot;
     $('webCopy').onclick = async () => {
         if (!webView.item) return;
         try { await navigator.clipboard.writeText(webView.item.url); toast('已複製網址') } catch { toast(webView.item.url) }
@@ -410,6 +471,7 @@ function webAfterRefresh() {
     const latest = library.find(item => item.id === webView.item.id);
     if (!latest || !sourceGroupItems().some(item => item.id === latest.id)) { closeWebWork(); return }
     const urlChanged = latest.url !== webView.item.url;
+    if (latest.snapshotAt !== webView.item.snapshotAt) $('webSnapshot').src = '/poster/' + latest.id + '?v=' + (latest.snapshotAt || 0);
     webView.item = latest;
     drawWebItem();
     if (urlChanged && webView.live) loadWebFrame();
@@ -423,11 +485,59 @@ buildShortEntries = function (items) {
     return entries;
 };
 
+// Mouse drag scrolls between Short cards; only a still, short press opens the work.
+function installWebShortGesture(card, video) {
+    let gesture = null;
+    video.draggable = false;
+    video.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        const scroller = $('shortScroller');
+        gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, top: scroller.scrollTop, at: Date.now(), moved: false, mouse: event.pointerType === 'mouse' };
+        if (gesture.mouse) { video.setPointerCapture(event.pointerId); event.preventDefault() }
+    });
+    video.addEventListener('pointermove', event => {
+        if (!gesture || event.pointerId !== gesture.id) return;
+        const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
+        if (Math.hypot(dx, dy) > 8) gesture.moved = true;
+        if (gesture.mouse && gesture.moved) {
+            const scroller = $('shortScroller');
+            scroller.classList.add('short-updating');
+            scroller.scrollTop = gesture.top - dy;
+        }
+    });
+    const finish = (event, cancel) => {
+        if (!gesture || event.pointerId !== gesture.id) return;
+        const done = gesture; gesture = null;
+        if (Math.hypot(event.clientX - done.x, event.clientY - done.y) > 8) done.moved = true;
+        const scroller = $('shortScroller');
+        const scrolled = scroller.scrollTop !== done.top;
+        if (done.mouse && done.moved) {
+            const dy = event.clientY - done.y;
+            scroller.scrollTop = done.top;
+            requestAnimationFrame(() => {
+                scroller.classList.remove('short-updating');
+                if (!shorts.activeCard) shorts.activeCard = card;
+                if (!cancel && Math.abs(dy) > 40) navigateShort(dy < 0 ? 1 : -1);
+                else card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+            });
+        }
+        card._suppressClickUntil = done.moved || scrolled || Date.now() - done.at > 600 ? Date.now() + 400 : 0;
+    };
+    video.addEventListener('pointerup', event => finish(event, false));
+    video.addEventListener('pointercancel', event => finish(event, true));
+    video.onclick = event => {
+        event.preventDefault();
+        if (Date.now() < (card._suppressClickUntil || 0)) return;
+        if (shorts.activeCard !== card) { card.scrollIntoView({ block: 'start', behavior: 'smooth' }); return }
+        openPlayer(card._entry.item);
+    };
+}
+
 function decorateWebShort(card, video, expand) {
     card._web = true;
     card.classList.add('webShort');
     video.preload = 'none';
-    video.onclick = () => openPlayer(card._entry.item);
+    installWebShortGesture(card, video);
     expand.title = '放大開啟網頁'; expand.setAttribute('aria-label', '放大開啟網頁 ' + card._entry.item.title);
     expand.onclick = () => openPlayer(card._entry.item);
     const tab = document.createElement('button');

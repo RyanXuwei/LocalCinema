@@ -602,7 +602,16 @@ def make_handler(lib):
                     with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'))
                 elif action=='delete':
                     with lib.lock:lib.web_works.delete(item['id'],data.get('confirm'))
+                elif action=='snapshot' and data.get('now'):
+                    if not lib.web_works.capture_now(item['id']):return self.reply(502,{'error':'無法擷取此網址的畫面，請確認網站可開啟。'})
                 elif action=='snapshot':lib.web_works.queue_snapshot(item['id'])
+                elif action=='snapshot-upload':
+                    import base64
+                    image=str(data.get('image',''))
+                    if not image.startswith('data:image/') or ';base64,' not in image:return self.reply(400,{'error':'快照格式錯誤'})
+                    try:raw=base64.b64decode(image.split(';base64,',1)[1],validate=True)
+                    except ValueError:return self.reply(400,{'error':'快照格式錯誤'})
+                    lib.web_works.store_snapshot(item['id'],raw)
                 elif action=='visit':
                     with lib.db() as db:
                         db.execute('INSERT INTO watches VALUES (?,?,?,?,?,?,?) ON CONFLICT(session) DO UPDATE SET updated=excluded.updated',
@@ -672,7 +681,8 @@ def make_handler(lib):
             if self.headers.get('X-Cinema-Token')!=lib.token: return self.reply(403,{'error':'驗證失敗'})
             try:
                 length=int(self.headers.get('Content-Length','0'))
-                if not 0<length<=65536: return self.reply(400,{'error':'資料大小錯誤'})
+                limit=16*1024*1024 if urlparse(self.path).path=='/api/works/snapshot-upload' else 65536
+                if not 0<length<=limit: return self.reply(400,{'error':'資料大小錯誤'})
                 data=json.loads(self.rfile.read(length)); route=urlparse(self.path).path
                 if route=='/api/groups/unlock':
                     with lib.lock:session=lib.group_access.unlock(data.get('password'),self.headers.get('Cookie',''),self.client_address[0],data.get('page'))

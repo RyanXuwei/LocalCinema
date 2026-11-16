@@ -19,12 +19,13 @@ def headers(**values):
 
 class WebWorkTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory(dir=TEST_HOME);self.root=Path(self.tmp.name);self.captures=[]
+        self.tmp=tempfile.TemporaryDirectory(dir=TEST_HOME);self.root=Path(self.tmp.name);self.captures=[];self.delays=[]
         config={'groups':[{'id':'default','name':'Public'},{'id':'site','name':'Sites','kind':WEB_KIND},{'id':'secret','name':'Secret sites','kind':WEB_KIND}],'roots':[],'tags':{},'categories':[]}
         self.lib=Library(lambda text:None,db_path=self.root/'web.db',config=config)
         works=self.lib.web_works
         works.browser=self.root/'fake-browser.exe'
-        def capture(browser,url,target):
+        def capture(browser,url,target,delay_ms=10000):
+            self.delays.append(delay_ms)
             self.captures.append(url);Path(target).parent.mkdir(parents=True,exist_ok=True)
             from PIL import Image
             Image.new('RGB',(32,20),(40,90,60)).save(target,'JPEG');return True
@@ -62,6 +63,33 @@ class WebWorkTests(unittest.TestCase):
         works.delete(row['id'],row['id']);self.lib.refresh_web()
         self.assertIsNone(self.lib.web_item(row['id']));self.assertFalse(snapshot.exists())
         self.assertNotIn(row['id'],self.lib.config['group_tags'].get('site',{}))
+    def test_retake_now_and_browser_upload(self):
+        import io,base64
+        from PIL import Image
+        works=self.lib.web_works
+        row=works.add('site','https://example.test/retake');self.wait_idle()
+        first=Path(self.lib.pictures[row['id']])
+        self.assertTrue(works.capture_now(row['id']));self.lib.refresh_web()
+        self.assertEqual(self.delays[-1],1500);second=Path(self.lib.pictures[row['id']])
+        self.assertNotEqual(first,second);self.assertFalse(first.exists())
+        buffer=io.BytesIO();Image.new('RGB',(2000,1000),(200,10,10)).save(buffer,'PNG')
+        works.store_snapshot(row['id'],buffer.getvalue());self.lib.refresh_web()
+        third=Path(self.lib.pictures[row['id']]);self.assertFalse(second.exists())
+        with Image.open(third) as image:self.assertEqual(image.size,(1600,800));self.assertEqual(image.getpixel((5,5))[0]>150,True)
+        for bad in (b'',b'not an image'):
+            with self.assertRaises(ValueError):works.store_snapshot(row['id'],bad)
+        server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(self.lib));threading.Thread(target=server.serve_forever,daemon=True).start()
+        try:
+            def request(path,data):
+                connection=http.client.HTTPConnection('127.0.0.1',server.server_port)
+                connection.request('POST',path,json.dumps(data),{'X-Cinema-Token':self.lib.token})
+                response=connection.getresponse();response.read();connection.close();return response.status
+            large=io.BytesIO();Image.new('RGB',(1200,700),(10,10,200)).save(large,'JPEG',quality=95)
+            image='data:image/jpeg;base64,'+base64.b64encode(large.getvalue()).decode()
+            self.assertEqual(request('/api/works/snapshot-upload',{'id':row['id'],'image':image}),200)
+            self.assertEqual(request('/api/works/snapshot-upload',{'id':row['id'],'image':'data:text/plain;base64,aGk='}),400)
+            self.assertEqual(request('/api/works/snapshot',{'id':row['id'],'now':True}),200)
+        finally:server.shutdown();server.server_close()
     def test_group_kinds(self):
         groups=self.lib.source_groups
         with self.assertRaises(ValueError):groups.assign([0],'site')

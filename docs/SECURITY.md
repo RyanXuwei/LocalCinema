@@ -24,7 +24,7 @@ PBKDF2-HMAC-SHA256（每密碼隨機 salt、200000 iterations）保存驗證值�
 
 作品網址只接受 http／https，拒絕含帳號密碼的網址。新增或重新擷取時，主機會以 urllib 讀取標頭與標題，並以暫時設定檔的 Edge／Chrome 無頭模式開啟網站；這代表任何已取得 LAN 授權的裝置都能讓主機連線到它指定的網址（含區網位址），請只在可信任網路使用。快照瀏覽器使用無痕、暫存 profile，不讀取使用者的瀏覽器登入資料。
 
-前端 iframe 使用 sandbox（允許 scripts、same-origin、forms、popups、modals），不允許 top-navigation，referrer 為 no-referrer。作品網站與映室不同來源，不能讀取映室 API 或 cookie。新增、編輯、刪除與重新擷取都需 X-Cinema-Token，並經群組可見範圍檢查；刪除 API 需要再次帶入作品 ID 作為確認。
+前端 iframe 使用 sandbox（允許 scripts、same-origin、forms、popups、modals），不允許 top-navigation，referrer 為 no-referrer。作品網站與映室不同來源，不能讀取映室 API 或 cookie。新增、編輯、刪除與重新擷取都需 X-Cinema-Token，並經群組可見範圍檢查；刪除 API 需要再次帶入作品 ID 作為確認。重新擷取可上傳瀏覽器分頁擷取的圖片（僅 /api/works/snapshot-upload 放寬至 16 MiB），後端以 Pillow 驗證 JPEG／PNG／WEBP 與尺寸後重新編碼保存；分頁擷取需要使用者在瀏覽器的分享提示中同意，且只在安全來源（localhost）可用。
 
 ## 問題回報
 
