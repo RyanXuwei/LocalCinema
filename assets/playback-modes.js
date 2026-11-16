@@ -7,7 +7,7 @@ function filterPlaybackItems(items, filters) {
         (!filters.group || (item.groups || ['default']).includes(filters.group)) &&
         (filters.view !== 'favorites' || item.favorite) &&
         (filters.view !== 'history' || item.watchCount > 0) &&
-        (item.title + ' ' + item.tags.join(' ')).toLocaleLowerCase().includes(query) &&
+        (item.title + ' ' + (item.url || '') + ' ' + item.tags.join(' ')).toLocaleLowerCase().includes(query) &&
         (!includes.length || includes.some(tag => item.tags.includes(tag))) &&
         !excludes.some(tag => item.tags.includes(tag)) &&
         item.updated >= filters.from && item.updated <= filters.to);

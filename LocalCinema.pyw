@@ -41,7 +41,7 @@ try:
     from PIL import Image
     import imageio_ffmpeg, qrcode
     assets=Path(__file__).resolve().parent
-    for required in ['index.html','assets/localcinema.ico','assets/bitingbox-studio.png','assets/group-icons/catalog.json','assets/playback-modes.js','assets/short-queue.js','assets/interaction-controls.js','assets/catalog-pagination.js','assets/studio-layout.css','assets/studio-navigation.js']:
+    for required in ['index.html','assets/localcinema.ico','assets/bitingbox-studio.png','assets/group-icons/catalog.json','assets/playback-modes.js','assets/short-queue.js','assets/interaction-controls.js','assets/catalog-pagination.js','assets/studio-layout.css','assets/studio-navigation.js','assets/web-works.js','assets/web-works.css']:
         if not (assets/required).is_file():raise FileNotFoundError(required)
     if not Path(imageio_ffmpeg.get_ffmpeg_exe()).is_file():raise FileNotFoundError('FFmpeg')
     from cinema import main

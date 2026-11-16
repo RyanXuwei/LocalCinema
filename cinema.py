@@ -10,6 +10,7 @@ from source_groups import SourceGroups,open_group_manager,DEFAULT_GROUP
 from source_help import open_source_help
 from version import APP_VERSION
 from group_access import GroupAccess,visible_payload,may_read
+from web_works import WebWorks,WEB_KIND,group_kind
 from http.cookies import SimpleCookie
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
@@ -196,6 +197,8 @@ class Library:
             db.execute('INSERT OR IGNORE INTO app_settings(key,value) VALUES (?,?)',('lan_access_key',self.access_key))
             self.access_key=db.execute('SELECT value FROM app_settings WHERE key=?',('lan_access_key',)).fetchone()[0]
         self.conversion_store=ConversionStore(self.db_path)
+        self.web_works=WebWorks(self.db,DATA,self.source_groups,on_change=self.refresh_web,log=log)
+        self.refresh_web()
         try:
             import imageio_ffmpeg
             self.ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
@@ -442,7 +445,7 @@ class Library:
                 except OSError: pass
                 self.conversion_idle.set()
     def shutdown(self):
-        self.auto_promoter.close()
+        self.auto_promoter.close(); self.web_works.close()
         with self.lock:
             self.closing=True; process=self.convert_process
         self.shutdown_event.set(); self.processing_stop.set(); self.background_wake.set()
@@ -496,6 +499,7 @@ class Library:
                 self.items=items
                 self.media={e['id']:Path(e['path']) for i in items for e in i['episodes']}
                 self.pictures={i['id']:Path(i['picture']) for i in items if i['picture']}
+                self.refresh_web()
                 self.scan_generation+=1
                 self.revision+=1
             self.import_conversion_cache()
@@ -513,6 +517,16 @@ class Library:
                         self.pictures[item['id']]=cache; self.revision+=1
         except Exception as e: self.log(f'掃描／縮圖錯誤：{e}')
         finally: self.scanning=False
+    def refresh_web(self):
+        """Web works live beside scanned media; rebuilt without rescanning folders."""
+        works=self.web_works.items()
+        with self.lock:
+            self.items=[item for item in self.items if item.get('kind')!=WEB_KIND]+works
+            self.pictures={key:path for key,path in self.pictures.items() if not key.startswith('w') or len(key)!=21}
+            self.pictures.update({item['id']:Path(item['picture']) for item in works if item['picture']})
+            self.revision+=1
+    def web_item(self,work_id):
+        with self.lock:return next((item for item in self.items if item['id']==work_id and item.get('kind')==WEB_KIND),None)
     def public(self):
         with self.lock:
             favorites,watches,exposure,progress=self.state()
@@ -567,6 +581,28 @@ def make_handler(lib):
             self.send_response(status); self.send_header('Content-Type',kind); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.send_header('X-Content-Type-Options','nosniff'); self.end_headers()
             if self.command!='HEAD': self.wfile.write(data)
         def allowed_groups(self):return lib.group_access.visible(self.headers.get('Cookie',''))
+        def work_route(self,action,data,allowed):
+            try:
+                if action=='add':
+                    group=str(data.get('group',''))
+                    if group not in allowed:return self.reply(404,{'error':'不存在'})
+                    with lib.lock:row=lib.web_works.add(group,data.get('url'),data.get('title',''))
+                    lib.refresh_web();return self.reply(200,{'id':row['id']})
+                item=lib.web_item(str(data.get('id','')))
+                if item is None or not allowed.intersection(item['groups']):return self.reply(404,{'error':'作品不存在'})
+                if action=='update':
+                    with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'))
+                elif action=='delete':
+                    with lib.lock:lib.web_works.delete(item['id'],data.get('confirm'))
+                elif action=='snapshot':lib.web_works.queue_snapshot(item['id'])
+                elif action=='visit':
+                    with lib.db() as db:
+                        db.execute('INSERT INTO watches VALUES (?,?,?,?,?,?,?) ON CONFLICT(session) DO UPDATE SET updated=excluded.updated',
+                                   (str(data.get('session',''))[:100] or secrets.token_hex(12),item['id'],item['id'],time.time(),time.time(),0,0))
+                    return self.reply(200,{'ok':True})
+                else:return self.reply(404,{'error':'不存在'})
+                lib.refresh_web();return self.reply(200,{'ok':True})
+            except ValueError as error:return self.reply(400,{'error':str(error)})
         def do_HEAD(self): self.do_GET()
         def do_GET(self):
             if not self.authorized(): return
@@ -586,7 +622,7 @@ def make_handler(lib):
                     return self.reply(200,file.read_bytes(),mimetypes.guess_type(str(file))[0] or 'image/webp')
                 if route.startswith('/assets/'):
                     name=route.removeprefix('/assets/')
-                    if name not in ('sumi-background.png','camellia-emblem.png','ui-icons.svg','catalog-pagination.js','localcinema.ico','localcinema-icon.png','playback-modes.js','short-queue.js','interaction-controls.js','bitingbox-studio.png','bitingbox-studio-plaque.svg','studio-layout.css','studio-navigation.js'): return self.reply(404,{'error':'不存在'})
+                    if name not in ('sumi-background.png','camellia-emblem.png','ui-icons.svg','catalog-pagination.js','localcinema.ico','localcinema-icon.png','playback-modes.js','short-queue.js','interaction-controls.js','bitingbox-studio.png','bitingbox-studio-plaque.svg','studio-layout.css','studio-navigation.js','web-works.js','web-works.css'): return self.reply(404,{'error':'不存在'})
                     return self.reply(200,(BASE/'assets'/name).read_bytes(),mimetypes.guess_type(name)[0] or 'application/octet-stream')
                 if route=='/api/library': return self.reply(200,visible_payload(lib,self.allowed_groups()))
                 if route.startswith('/media/') or route.startswith('/poster/') or route.startswith('/compatible/'):
@@ -644,6 +680,7 @@ def make_handler(lib):
                 if data.get('group') and data['group'] not in allowed:return self.reply(404,{'error':'不存在'})
                 if data.get('id') and not may_read(lib,allowed,data['id']):return self.reply(404,{'error':'不存在'})
                 if data.get('episode') and not may_read(lib,allowed,data['episode'],episode=True):return self.reply(404,{'error':'不存在'})
+                if route.startswith('/api/works/'):return self.work_route(route.removeprefix('/api/works/'),data,allowed)
                 if route=='/api/prepare': return self.reply(200,lib.prepare(str(data['episode']),bool(data.get('force',False))))
                 if route=='/api/recommend': return self.reply(200,{'id':lib.recommend(data.get('previous'),data.get('group'),allowed)})
                 if route=='/api/exposure':
@@ -982,6 +1019,7 @@ def _run(instance):
     group_toolbar=ttk.Frame(content);group_toolbar.pack(fill='x',padx=20,pady=(12,0))
     ttk.Label(group_toolbar,text='片源群組',font=('Microsoft JhengHei UI',12)).pack(side='left')
     ttk.Button(group_toolbar,text='＋ 新增／管理片源群組',command=lambda:open_group_manager(root,lib,refresh)).pack(side='right')
+    ttk.Button(group_toolbar,text='＋ 新增／管理作品群組',command=lambda:open_group_manager(root,lib,lambda:(lib.refresh_web(),refresh()),WEB_KIND)).pack(side='right',padx=(0,8))
     source_tabs=ttk.Notebook(content,style='Source.TNotebook'); source_tabs.pack(fill='x',padx=20,pady=12)
     group_trees={}; group_pages={}
     active_group_id=DEFAULT_GROUP
@@ -993,7 +1031,7 @@ def _run(instance):
     def refresh():
         nonlocal active_group_id
         current=chosen_group() if group_pages else active_group_id
-        groups=lib.config['groups']
+        groups=[group for group in lib.config['groups'] if group_kind(group)!=WEB_KIND]
         valid={group['id'] for group in groups}
         for group_id in list(group_pages):
             if group_id not in valid:
@@ -1051,7 +1089,7 @@ def _run(instance):
         menu=tk.Menu(root,tearoff=False,bg='#252821',fg='#e5e1d7',activebackground='#494b3d',activeforeground='#fff3da')
         root.source_context_menu=menu
         targets=tk.Menu(menu,tearoff=False,bg='#252821',fg='#e5e1d7',activebackground='#494b3d',activeforeground='#fff3da')
-        for group in lib.config['groups']:
+        for group in [group for group in lib.config['groups'] if group_kind(group)!=WEB_KIND]:
             targets.add_command(label=group['name'],state='disabled' if group['id']==chosen_group() else 'normal',
                                 command=lambda target=group['id'],selected=selected:assign_group(target,selected))
         menu.add_cascade(label=f'移動至群組（{len(selected)} 個目錄）',menu=targets)

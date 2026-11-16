@@ -1,11 +1,12 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v1.12.1。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-16。適用程式版本：v2.0.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
 - 程式版本由 version.py 決定。v1.11.0 程式提交：676cbe8768f7c20374f12ea4569daf3d9b7d5af7，已同步 main，為 v1.11.1 修正前的程式基準；目前修正以現行 HEAD 為準。純文件提交不代表程式升版。
 - 根目錄為主要原始碼；outputs/LocalCinema 為使用副本，改版完成後同步所需程式、素材與文件，保留既有捷徑，不整個刪掉重建。outputs 不入 Git。
+- v2.0.0 作品群組在 refactor/architecture-v2 分支開發，尚未合併 main、尚未打包。v1.12.1 為 main 最新版並有 tag。
 - v1.12.1 尚未產生安裝檔。歷史曾封裝至 v1.6.0，但舊產物不保證仍存在；不可將舊 self-test 報告或 SHA256 當成最新版證據。發行前確認實際檔名、版本、雜湊及報告。
 - v1.11.1 修正：服務已停止時，保留背景預轉／自動保留勾選不再阻擋快取搬移與清理；實際忙碌仍拒絕並顯示具體原因。
 
@@ -25,6 +26,12 @@
 - 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
 - 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
 - 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
+
+## 作品群組（v2.0.0）
+
+- 使用者確定：作品只支援網址；作品群組與片源群組同一個首頁選單，隱藏頻道／密碼規則相同；刪除作品須兩次確認；卡片與 Short 只顯示快照，放大才載入真實網站，另有以分頁開啟。
+- web_works.py 管理 SQLite web_works 與快照佇列（單一背景執行緒）。快照用 Edge／Chrome `--headless=new --virtual-time-budget=10000`，即網頁時間 10 秒，實際耗時通常數秒。合成網頁（8 秒後變色）實測擷取到變色後畫面。
+- 測試：tests/test_web_works.py（網址規則、嵌入政策、增刪改與快照替換、群組 kind、隱藏群組與 HTTP 路由）。前端以隔離資料與本機合成網站在內建瀏覽器實測卡片、檢視器、禁嵌提示、手機寬度、新增、兩次確認刪除與 Short；後台群組視窗以隔離 Tk 程式化檢查，主視窗按鈕未做畫面截圖驗證。
 
 ## 最新後台與服務行為
 

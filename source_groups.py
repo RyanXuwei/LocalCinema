@@ -6,6 +6,10 @@ from pathlib import Path
 
 DEFAULT_GROUP='default'
 DEFAULT_ICON='collection'
+WEB_KIND='web'
+
+def kind_of(group):
+    return WEB_KIND if group.get('kind')==WEB_KIND else 'media'
 
 class SourceGroups:
     def __init__(self,config,data_dir,asset_dir,save):
@@ -27,9 +31,10 @@ class SourceGroups:
         group=next((group for group in self.config['groups'] if group['id']==group_id),None)
         if group is None: raise ValueError('片源群組不存在。')
         return group
-    def create(self,name):
+    def create(self,name,kind='media'):
         name=self.validate_name(name)
         group={'id':secrets.token_hex(8),'name':name,'icon':DEFAULT_ICON,'updated':time.time_ns()}
+        if kind==WEB_KIND:group['kind']=WEB_KIND
         self.config['groups'].append(group); self.save(self.config); return group
     def validate_name(self,name,ignore=None):
         name=str(name).strip()[:60]
@@ -70,7 +75,7 @@ class SourceGroups:
         self.config['groups']=[group for group in self.config['groups'] if group['id']!=group_id]
         self.save(self.config)
     def assign(self,indices,group_id):
-        self.get(group_id)
+        if kind_of(self.get(group_id))==WEB_KIND:raise ValueError('作品群組只放網址，不能加入影片根目錄。')
         if any(not isinstance(index,int) or index<0 or index>=len(self.config.get('roots',[])) for index in indices): raise ValueError('片源選取已變更，請重新選取。')
         for index in indices: self.config['roots'][index]['group']=group_id
         self.save(self.config)
@@ -86,31 +91,39 @@ class SourceGroups:
         self.config['group_categories'][group_id]=sorted(set(self.tag_catalog(group_id)+tags))
         self.save(self.config)
     def reorder(self,group_ids):
+        """Accept the full order, or one kind's order placed back into that kind's slots."""
         groups=self.config['groups']; ids=[group['id'] for group in groups]
-        if len(group_ids)!=len(ids) or len(set(group_ids))!=len(ids) or set(group_ids)!=set(ids):
+        if len(set(group_ids))!=len(group_ids) or not set(group_ids)<=set(ids):
             raise ValueError('群組清單已變更，請重新拖曳排序。')
         by_id={group['id']:group for group in groups}
+        if len(group_ids)!=len(ids):
+            kinds={kind_of(by_id[group_id]) for group_id in group_ids}
+            subset={group['id'] for group in groups if kind_of(group) in kinds}
+            if len(kinds)!=1 or subset!=set(group_ids):raise ValueError('群組清單已變更，請重新拖曳排序。')
+            queue=iter(group_ids)
+            group_ids=[next(queue) if group_id in subset else group_id for group_id in ids]
         self.config['groups']=[by_id[group_id] for group_id in group_ids]
         self.save(self.config)
     def public(self,items):
-        return [{'id':group['id'],'name':group['name'],
+        return [{'id':group['id'],'name':group['name'],'kind':kind_of(group),
                  'image':'/group-image/'+group['id']+'?v='+str(group.get('updated',0)),
                  'count':sum(group['id'] in item.get('groups',[DEFAULT_GROUP]) for item in items)}
                 for group in self.config['groups']]
 
 
-def open_group_manager(root,lib,on_change):
+def open_group_manager(root,lib,on_change,kind='media'):
     import tkinter as tk
     from tkinter import ttk,simpledialog,filedialog,messagebox
     from PIL import Image,ImageTk
-    previous=getattr(root,'group_window',None)
+    web=kind==WEB_KIND;attribute='work_group_window' if web else 'group_window'
+    previous=getattr(root,attribute,None)
     if previous and previous.winfo_exists(): previous.deiconify(); previous.lift(); return
-    window=tk.Toplevel(root); root.group_window=window; window.title('片源群組設定')
+    window=tk.Toplevel(root); setattr(root,attribute,window); window.title('作品群組設定' if web else '片源群組設定')
     window.configure(bg='#171817'); window.geometry('780x560'); window.minsize(640,440)
-    ttk.Label(window,text='片源群組是最上層片單範圍',font=('Microsoft JhengHei UI',16)).pack(anchor='w',padx=16,pady=12)
-    ttk.Label(window,text='按住群組列上下拖曳即可排序，放開後自動儲存；順序同步至後台分頁與首頁。',wraplength=730).pack(anchor='w',padx=16)
+    ttk.Label(window,text='作品群組收藏 HTML 網頁作品' if web else '片源群組是最上層片單範圍',font=('Microsoft JhengHei UI',16)).pack(anchor='w',padx=16,pady=12)
+    ttk.Label(window,text=('作品網址在首頁切到此群組後新增或刪除；首頁群組選單與片源群組共用，隱藏頻道規則相同。' if web else '')+'按住群組列上下拖曳即可排序，放開後自動儲存；順序同步至後台分頁與首頁。',wraplength=730).pack(anchor='w',padx=16)
     tree=ttk.Treeview(window,columns=('name','roots'),show='headings',height=8,selectmode='browse')
-    tree.heading('name',text='群組名稱'); tree.heading('roots',text='根目錄數');tree.column('name',width=480);tree.column('roots',width=100)
+    tree.heading('name',text='群組名稱'); tree.heading('roots',text='作品數' if web else '根目錄數');tree.column('name',width=480);tree.column('roots',width=100)
     tree.pack(fill='both',expand=True,padx=16,pady=12)
     preview=ttk.Label(window);preview.pack(pady=5)
     actions=ttk.Frame(window); actions.pack(fill='x',padx=16,pady=12)
@@ -128,16 +141,17 @@ def open_group_manager(root,lib,on_change):
         tree.delete(*tree.get_children())
         with lib.lock:
             for group in lib.config['groups']:
-                count=sum(r.get('group',DEFAULT_GROUP)==group['id'] for r in lib.config['roots'])
+                if kind_of(group)!=kind:continue
+                count=len(lib.web_works.rows(group['id'])) if web else sum(r.get('group',DEFAULT_GROUP)==group['id'] for r in lib.config['roots'])
                 tree.insert('','end',iid=group['id'],values=(group['name']+('（隱藏）' if group.get('hidden') else ''),count))
         if tree.exists(old): tree.selection_set(old)
         draw();on_change()
     def run(action):
         try:
             if action=='new':
-                name=simpledialog.askstring('新增片源群組','群組名稱：',parent=window)
+                name=simpledialog.askstring('新增作品群組' if web else '新增片源群組','群組名稱：',parent=window)
                 if name is None:return
-                with lib.lock: group=lib.source_groups.create(name)
+                with lib.lock: group=lib.source_groups.create(name,kind)
                 refresh(group['id']);return
             group_id=selected()
             if action=='rename':
@@ -148,6 +162,12 @@ def open_group_manager(root,lib,on_change):
                 filename=filedialog.askopenfilename(parent=window,title='選擇群組代表圖',filetypes=[('圖片','*.png *.jpg *.jpeg *.webp *.bmp')])
                 if not filename:return
                 with lib.lock:lib.source_groups.set_custom(group_id,filename)
+            elif action=='delete' and web:
+                group=lib.source_groups.get(group_id);count=len(lib.web_works.rows(group_id))
+                if not messagebox.askyesno('刪除作品群組',f'「{group["name"]}」含 {count} 個作品網址，刪除群組會一併移除這些網址與快照（不影響網站本身）。確定繼續？',parent=window):return
+                if count and not messagebox.askyesno('再次確認','此操作無法復原。確定刪除群組與全部作品網址？',icon='warning',parent=window):return
+                with lib.lock:
+                    lib.web_works.delete_group_works(group_id);lib.source_groups.delete(group_id);lib.refresh_web()
             elif action=='delete':
                 if not messagebox.askyesno('刪除群組','只刪除群組設定，不刪除影片。確定繼續？',parent=window):return
                 with lib.lock:lib.source_groups.delete(group_id)

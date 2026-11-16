@@ -11,6 +11,7 @@
 | operation_progress.py | 最新進度快照、作業階段與 FFmpeg 進度解析 |
 | playback_storage.py | 可選快取目錄、二次驗證搬移、空間統計與低空間停止轉檔 |
 | conversion_store.py | 人工確認、MP4 副本驗證、原檔回收、持久識別別名 |
+| web_works.py | 作品網址資料表、網址驗證、嵌入政策檢查、Edge／Chrome 無頭快照佇列 |
 | source_help.py | 目錄／平鋪片單圖解視窗 |
 | index.html | 前端完整 UI、播放器、Short、隱蔽與群組選擇 |
 | assets/catalog-pagination.js | 穩定亂數排序及分頁 |
@@ -18,6 +19,7 @@
 | assets/short-queue.js | Short 篩選片單及亂數佇列 |
 | assets/interaction-controls.js | Banner 歷史、定時間隔、拖曳等互動工具 |
 | assets/studio-layout.css | prototype 對齊的視覺與響應式版面 |
+| assets/web-works.js／web-works.css | 作品群組卡片裝飾、iframe 作品檢視器、新增／編輯／刪除與 Short 快照卡 |
 | assets/studio-navigation.js | 重用原控制項的側邊／底部導覽 |
 | version.py | 版本號 |
 
@@ -30,6 +32,12 @@ Tk 主執行緒維護後台與視窗狀態；HTTP 使用 ThreadingHTTPServer；�
 前端每 5 秒取得片庫與狀態；隱蔽另有同步。群組切換會關閉當前播放／Short、清除篩選與 Banner 歷史，再在所選群組建立片單。標籤由 groupCategories／groupTags 覆蓋成目前群組的值。
 
 HTTP 請求先經 Host／Origin／LAN admission，再依群組 session 判斷。`visible_payload` 過濾前端片單與群組資料；媒體、封面、prepare、recommend 與寫入操作另有存取檢查。
+
+## 作品群組（v2.0.0）
+
+群組帶 kind：預設 media，作品群組為 web。web 群組不接受根目錄，後台片源分頁與右鍵移動清單只列 media 群組；群組管理視窗依 kind 分開顯示，排序只重排同類群組的位置。作品以 `w`＋20 位十六進位 ID 存在 SQLite web_works，Library.refresh_web 將作品合併進 items（kind=web、episodes 空陣列、url、frame、snapshotAt），所以篩選、收藏、標籤、推薦與隱藏頻道過濾沿用既有路徑；掃描影片時保留作品項目。
+
+前端 openPlayer 遇到 kind=web 改開作品檢視器；卡片不安裝 hover 預覽；Short 以快照當 poster，不載入任何內容。iframe 只在檢視器開啟且未凍結時存在，關閉、凍結、切換或 Hide 立即移除。
 
 ## Short 維護重點
 

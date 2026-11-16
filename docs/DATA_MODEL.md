@@ -9,6 +9,7 @@
 - group_categories：group id → 該群組分類陣列。
 - group_tags：group id → item id → 標籤陣列。
 - 舊 categories／tags 保留相容資訊，不應再當成所有群組的共用分類來源。
+- groups[].kind：缺少時視為 media；"web" 為作品群組，只收網址不收根目錄。
 - lock_on_page_close：是否在同一瀏覽器最後一個分頁離開後撤銷隱藏頻道授權，預設 false。
 - 其他設定包含背景預轉、隱蔽等；保留未知設定，不以固定預設物件覆蓋整份檔案。
 
@@ -27,6 +28,7 @@
 | cache_copies | 已保存 MP4 與快取 SHA256 對應，供安全清理 |
 | cache_moves | 已提交搬移的舊／新副本及 SHA256，供清理重試 |
 | media_replacements | 新 MP4 路徑 → 原影片／集數 ID、名稱與標題 |
+| web_works | 作品 ID、group_id、正規化 http(s) 網址、標題、建立／更新時間、快照檔名與時間、frame（allowed／blocked／unknown）、title_locked |
 
 轉檔狀態：ready → confirmed → saved → 完成後移除記錄。saved 代表 MP4 已保存但原檔仍可能待回收，不能因其已存在就當成完成。舊版 replaced 記錄於啟動清除，識別別名仍保留。
 
@@ -35,6 +37,10 @@
 影片與集數 ID 原本依來源路徑建立。保存 MP4 會改路徑，所以必須先寫 media_replacements，再於同一交易移除待辦記錄。下次掃描先套用別名，才能讓原收藏、觀看、書籤與群組標籤延續。
 
 禁止刪除別名表來「清理已完成項目」。不覆蓋原有同名 MP4；使用額外名稱，來源更新時間會帶到保存副本。回收前核對來源與成品是否改變，並比對副本雜湊。真實回收僅使用 Windows 現代 Send2Trash，不可退回永久 unlink。
+
+## 作品群組（v2.0.0）
+
+作品快照存於 DATA/web-snapshots，檔名為作品 ID 加隨機尾碼的 JPEG；成功擷取新圖後才刪舊圖。使用者自填標題會鎖定，不被網頁標題覆蓋。刪除作品會在同一交易移除 web_works、favorites、exposure、watches 中該 ID，再刪快照與群組標籤。刪除作品群組會先刪除群組內全部作品。開啟作品時以 watches 記錄（episode_id 等於作品 ID）。
 
 ## 遷移與更新規則
 

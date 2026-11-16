@@ -18,7 +18,7 @@ const ctx={console,document:{hidden:false,createElement:tag=>new Node(tag)},prev
  awaitPlayable:async()=>'/synthetic.mp4',openPlayer(){ctx.opened=true},renders:0,
  busy:false,wasScanning:false,coverRevision:1,library:[item],channelsUnlocked:false,shorts:{active:false},current:null,hero:item,pager:{sync(){}},
  $:id=>id==='grid'?grid:scan,fetch:async()=>({ok:true,json:async()=>payload}),syncChannelToggle(){},applyPrivacy(){},applySourceGroups:()=>false,
- applyGroupTags(){},categoryOptions(){},sourceGroupItems:()=>ctx.library,randomHero(){},resetSourceScope(){},stopShorts(){},closePlayer(){}};
+ applyGroupTags(){},categoryOptions(){},sourceGroupItems:()=>ctx.library,randomHero(){},resetSourceScope(){},stopShorts(){},closePlayer(){},webAfterRefresh(){}};
 vm.createContext(ctx);vm.runInContext(helper+refresh+"function render(){previewRenderPending=false;for(const stop of [...previews])stop();renders++}",ctx);
 function advance(ms){now+=ms;for(const [id,t] of [...timers])if(t.at<=now){timers.delete(id);t.fn()}}
 function setup(){const card=new Node('article'),visual=new Node('div');card.append(visual);ctx.installCardPreview(card,visual,item);return {card,visual}}

@@ -1,0 +1,61 @@
+/* HTML works viewer: same quiet dark-green palette and outline icons as the video player. */
+#webModal{width:min(1400px,98vw);max-width:none;height:min(92vh,900px);max-height:none;padding:0;overflow:hidden;background:#101411;border-color:#4a5643}
+#webModal::backdrop{background:#070908d9}
+#webStage{position:relative;width:100%;height:100%;background:#0d100e;display:flex;flex-direction:column}
+#webStage:fullscreen{width:100vw;height:100vh}
+#webHead{order:-1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;background:#151b17;border-bottom:1px solid #3c493d;z-index:4}
+.webTitleBlock{display:flex;align-items:baseline;gap:12px;min-width:0;flex-wrap:wrap}
+#webTitle{margin:0;font-size:17px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+#webHost{font-size:12px;color:#9fb59c;text-decoration:none}#webHost:hover{text-decoration:underline}
+#webState{font-size:12px;color:#d7c79a}
+#webHead .headActions{display:flex;gap:8px;align-items:center}
+#webHead button{height:36px;min-width:42px;display:grid;place-items:center;padding:4px 8px;background:transparent;border:1px solid #59654f55}
+#webCanvas{position:relative;flex:1;min-height:0;overflow:hidden;background:#0a0c0a;display:flex;justify-content:center;filter:brightness(var(--web-brightness,1))}
+#webSnapshot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:.9;transition:opacity .3s}
+#webCanvas.frame-ready #webSnapshot{opacity:0}
+#webFrameBox{position:relative;flex:none;transform-origin:top center;z-index:1}
+#webFrameBox:empty{display:none}
+#webFrameBox.framed{box-shadow:0 0 0 1px #4d5b4a,0 10px 40px #000a}
+#webFrameBox iframe{display:block;width:100%;height:100%;border:0;background:#fff}
+#webBlocked{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);z-index:3;padding:16px 20px;border:1px solid #5a6a53;border-radius:6px;background:#141a15ee;text-align:center;max-width:min(520px,90%)}
+#webBlocked p{margin:0 0 12px;color:#dcdcd0}
+#webBlocked div{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#webBlocked button{display:inline-flex;gap:6px;align-items:center;padding:8px 14px}
+#webToolbar{position:relative;z-index:4;padding:6px 12px;background:#151b17;border-top:1px solid #3c493d;margin:0}
+#webToolbar .controlsLeft,#webToolbar .controlsRight{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+#webToolbar button{position:relative;width:32px;height:32px}
+#webToolbar button:disabled{opacity:.35}
+#webToolbar .playerIcon,#webHead .playerIcon,#webBlocked .playerIcon,#addWebWork .playerIcon,.webCardTab .playerIcon,.webCardDelete .playerIcon,.webShortTab .playerIcon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#webToolbar button.is-on{color:#45d0e5;background:#23acc52b;box-shadow:inset 0 0 0 1px #5bcbdf88}
+#webDelete:hover{color:#f0a49a}
+.webBadge{position:absolute;right:-3px;bottom:-4px;font-size:9px;line-height:1;padding:1px 2px;border-radius:3px;background:#1e2a21;color:#cfe3cb}
+#webPosition{margin-left:8px;font-size:12px;color:#aab3a6}
+#webHelp{position:absolute;right:16px;bottom:58px;top:auto;z-index:6}
+#webEditDialog,#webConfirm{width:min(520px,94vw);padding:22px}
+#webEditForm label{display:block;margin:12px 0;color:#d8d8cc}
+#webEditForm input{display:block;width:100%;margin-top:6px;padding:9px 10px;box-sizing:border-box}
+#webEditError{color:#f0a49a;min-height:1.2em}
+#webConfirmText{white-space:pre-line;word-break:break-all;color:#d8d8cc}
+.dialogActions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+button.danger{background:#6b2f2a;border-color:#a2554c;color:#ffe9e4}button.danger:hover{background:#86392f}
+#addWebWork{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:6px 12px;font-size:12px;background:#465d44;border-color:#728768;color:#f5f2df}
+#addWebWork[hidden]{display:none}
+.webPending{position:absolute;left:10px;top:10px;z-index:2;padding:3px 7px;font-size:11px;border-radius:3px;background:#141a15dd;color:#d7c79a}
+.webCardHost{flex:1 1 100%;font-size:11px;color:#9fb59c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .meta{flex-wrap:wrap}
+.webCardAction{display:inline-grid;place-items:center;padding:2px 4px;background:transparent;border:0;color:#b7c4a8;pointer-events:auto}.webCardAction .playerIcon{width:15px!important;height:15px!important}
+.webCardDelete:hover{color:#f0a49a}
+.webShortTab{bottom:72px!important}
+.webShort .shortTimeline{display:none}
+.sourceGroupChoice.webGroupChoice{position:relative}
+.sourceGroupChoice.webGroupChoice::after{content:'WEB';position:absolute;top:8px;right:8px;font-size:9px;letter-spacing:1px;padding:2px 4px;border:1px solid #7aa4a0;border-radius:3px;color:#9fd0c9}
+.privacy-blur #webSnapshot,.privacy-blur #webFrameBox{filter:blur(12px) saturate(.5)}
+.privacy-blur #webStage .privacy-glass{display:block;z-index:2;pointer-events:none}
+body.boss-mode #webModal{display:none}
+@media (max-width:760px){
+  #webModal{width:100vw;height:100dvh;max-height:none;border:0;border-radius:0}
+  #webTitle{max-width:60vw;font-size:15px}
+  #webToolbar{padding:4px 6px}
+  #webToolbar button{width:30px;height:30px}
+  #webPosition{display:none}
+}
