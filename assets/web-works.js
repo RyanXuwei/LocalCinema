@@ -212,7 +212,16 @@ function syncWebToolbar() {
 
 function drawWebNotes() {
     const item = webView.item, notes = (item?.notes || '').trim();
-    $('webNotesText').textContent = notes || '尚無備註。按「編輯」可新增多行備註。';
+    const box = $('webNotesText');
+    box.replaceChildren();
+    if (!notes) box.textContent = '尚無備註。按「編輯」可新增多行備註。';
+    else for (const part of notes.split(/(https?:\/\/[^\s<>"'　-〿一-鿿＀-￯]+)/g)) {
+        if (/^https?:\/\//.test(part)) {
+            const link = document.createElement('a');
+            link.href = part; link.textContent = part; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            box.append(link);
+        } else if (part) box.append(document.createTextNode(part));
+    }
     $('webNotesText').classList.toggle('empty', !notes);
     $('webNotesToggle').classList.toggle('has-notes', !!notes);
     $('webNotesToggle').title = notes ? '備註（N）' : '備註：尚無內容（N）';

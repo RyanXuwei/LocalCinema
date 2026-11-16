@@ -26,6 +26,10 @@ PBKDF2-HMAC-SHA256（每密碼隨機 salt、200000 iterations）保存驗證值�
 
 前端 iframe 使用 sandbox（允許 scripts、same-origin、forms、popups、modals），不允許 top-navigation，referrer 為 no-referrer。作品網站與映室不同來源，不能讀取映室 API 或 cookie。新增、編輯、刪除與重新擷取都需 X-Cinema-Token，並經群組可見範圍檢查；刪除 API 需要再次帶入作品 ID 作為確認。重新擷取可上傳瀏覽器分頁擷取的圖片（僅 /api/works/snapshot-upload 放寬至 16 MiB），後端以 Pillow 驗證 JPEG／PNG／WEBP 與尺寸後重新編碼保存；分頁擷取需要使用者在瀏覽器的分享提示中同意，且只在安全來源（localhost）可用。
 
+## 作品備註
+
+備註可能含帳號、密碼或內部路徑。它以明碼存在 SQLite，並隨片庫 API 傳給所有可見該群組的瀏覽器；HTTP 傳輸不加密。敏感備註應放在隱藏頻道，且僅在可信任網路使用。備註中的連結以 rel="noopener noreferrer" 開新分頁。
+
 ## 問題回報
 
 請提供版本、重現步驟、合成片單及錯誤摘要。移除影片名稱、路徑、存取連結、密碼與設定資料。尚未設定專用漏洞回報管道，請勿在公開 issue 張貼敏感細節。

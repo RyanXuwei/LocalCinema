@@ -70,3 +70,4 @@ body.boss-mode #webModal{display:none}
 #webNotesToggle.has-notes::after{content:'';position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:#d7c79a}
 .webCardNote{flex:1 1 100%;display:flex;align-items:center;gap:4px;font-size:10px;color:#cfc8a8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .webCardNote .playerIcon{width:12px!important;height:12px!important;flex:none;fill:none;stroke:currentColor;stroke-width:1.5}
+#webNotesText a{color:#9fd0c9;word-break:break-all}

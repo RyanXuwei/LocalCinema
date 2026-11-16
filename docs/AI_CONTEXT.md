@@ -1,6 +1,6 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v2.2.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-16。適用程式版本：v2.2.1（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
@@ -29,7 +29,7 @@
 
 ## 作品備註（v2.2.0）
 
-- web_works.notes 由 clean_notes 正規化換行、去除行尾空白，上限 5000 字；update(notes=None) 表示不變。舊資料表以 PRAGMA table_info 檢查後 ALTER TABLE 補欄位。前端備註面板 #webNotes，設定鍵 localcinema:web-notes-open。
+- web_works.notes 由 clean_notes 正規化換行、去除行尾空白，上限 5000 字；update(notes=None) 表示不變。舊資料表以 PRAGMA table_info 檢查後 ALTER TABLE 補欄位。前端備註面板 #webNotes，設定鍵 localcinema:web-notes-open。使用者說明備註會放專案背景、帳號密碼、開發資源路徑與參考連結；v2.2.1 讓 http(s) 連結可點。明碼保存與傳輸的風險已寫入 README／SECURITY，尚未做遮罩或加密。
 
 ## 作品群組修正（v2.1.1）
 
