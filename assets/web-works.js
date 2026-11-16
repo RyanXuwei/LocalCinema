@@ -46,7 +46,7 @@ function readWebSetting(key, fallback) {
 function saveWebSetting(key, value) { try { localStorage.setItem('localcinema:web-' + key, String(value)) } catch { } }
 
 const webView = {
-    item: null, live: false, forceEmbed: false, session: '', rotateTimer: null, random: false, loadTimer: null,
+    item: null, live: false, forceEmbed: false, loadRequest: 0, session: '', rotateTimer: null, random: false, loadTimer: null,
     viewport: Math.min(WEB_VIEWPORTS.length - 1, Math.max(0, readWebSetting('viewport', 0))),
     zoom: Math.min(WEB_ZOOMS.length - 1, Math.max(0, readWebSetting('zoom', 0))),
     rotate: Math.min(WEB_ROTATE_SECONDS.length - 1, Math.max(0, readWebSetting('rotate', 0))),
@@ -69,7 +69,8 @@ function buildWebViewer() {
 <div id="webStage">
   <div id="webCanvas"><img id="webSnapshot" alt="" draggable="false"><div id="webFrameBox"></div></div>
   <div class="privacy-glass" aria-hidden="true"></div>
-  <div id="webBlocked" hidden><p>此網站不允許被嵌入其他頁面，目前顯示的是快照。</p><div><button id="webBlockedOpen" class="primary"></button><button id="webTryEmbed">仍嘗試嵌入</button></div></div>
+  <div id="webBlocked" hidden role="alertdialog" aria-labelledby="webBlockedTitle"><h3 id="webBlockedTitle">此網站禁止被嵌入</h3><p>網站的安全設定不允許在其他頁面（包括映室）內顯示，目前畫面是快照。請改用分頁開啟瀏覽。</p><p id="webBlockedReason"></p><div><button id="webBlockedOpen" class="primary"></button><button id="webTryEmbed">仍嘗試嵌入</button></div><label class="webBlockedRemember"><input type="checkbox" id="webBlockedDirect"> 之後點選禁止嵌入的作品時，直接以分頁開啟</label></div>
+  <div id="webEmbedHint" hidden role="status"><span id="webEmbedHintText"></span><button id="webEmbedHintOpen"></button><button id="webEmbedHintClose" aria-label="關閉提示">✕</button></div>
   <div id="webHead"><div class="webTitleBlock"><h2 id="webTitle"></h2><a id="webHost" target="_blank" rel="noopener noreferrer"></a><span id="webState" role="status"></span></div>
     <div class="headActions"><button id="webBoss" title="隱藏畫面">Hide</button><button id="webClose" aria-label="關閉作品檢視"></button></div></div>
   <div id="webToolbar" class="playerTools">
@@ -153,12 +154,43 @@ function unloadWebFrame() {
     syncWebToolbar();
 }
 
-function loadWebFrame() {
-    const item = webView.item;
+function showWebBlocked(item) {
+    $('webBlocked').hidden = false;
+    $('webBlockedReason').textContent = item.frameReason ? '偵測到：' + item.frameReason : '';
+    $('webBlockedDirect').checked = !!readWebSetting('direct-tab', 0);
+    $('webState').textContent = '此網站禁止嵌入';
+    requestAnimationFrame(() => $('webBlockedOpen').focus());
+}
+
+function showWebEmbedHint(item) {
+    $('webEmbedHint').hidden = false;
+    $('webEmbedHintText').textContent = '無法確認此網站是否允許嵌入' + (item.frameReason ? '（' + item.frameReason + '）' : '') + '。若畫面空白或顯示拒絕連線，請改用分頁開啟。';
+}
+
+// Ask the host to re-read the framing headers unless a recent check already allowed embedding.
+async function verifyWebFrame(item) {
+    const fresh = item.frame === 'allowed' && item.frameChecked && Date.now() / 1000 - item.frameChecked < 600;
+    if (fresh) return item;
+    $('webState').textContent = '正在確認網站是否允許嵌入…';
+    try {
+        const result = await post('/api/works/check', { id: item.id });
+        return Object.assign(item, { frame: result.frame, frameReason: result.reason, frameChecked: Date.now() / 1000 });
+    } catch { return item }
+}
+
+async function loadWebFrame(skipCheck = false) {
+    let item = webView.item;
     unloadWebFrame();
+    $('webBlocked').hidden = true; $('webEmbedHint').hidden = true;
     if (!item || bossActive) return;
-    $('webBlocked').hidden = webCanEmbed(item);
-    if (!webCanEmbed(item)) { $('webState').textContent = '此網站禁止嵌入'; return }
+    const request = ++webView.loadRequest;
+    if (!skipCheck && !webView.forceEmbed) {
+        item = await verifyWebFrame(item);
+        if (request !== webView.loadRequest || webView.item !== item) return;
+        syncWebToolbar();
+    }
+    if (!webCanEmbed(item)) { showWebBlocked(item); return }
+    if (item.frame === 'unknown' && !webView.forceEmbed) showWebEmbedHint(item);
     const frame = document.createElement('iframe');
     frame.id = 'webFrame';
     frame.title = item.title;
@@ -241,12 +273,18 @@ function drawWebItem() {
     $('webHost').textContent = webHost(item.url); $('webHost').href = item.url;
     $('webSnapshot').src = '/poster/' + item.id + '?v=' + (item.snapshotAt || 0);
     $('webSnapshot').style.visibility = item.snapshotAt ? 'visible' : 'hidden';
-    $('webBlocked').hidden = webCanEmbed(item);
     syncWebToolbar();
 }
 
 function openWebWork(item, options = {}) {
     buildWebViewer();
+    // A card click is a user gesture, so a known-blocked work can go straight to a new tab.
+    if (!options.automatic && item.frame === 'blocked' && readWebSetting('direct-tab', 0)) {
+        if (window.open(item.url, '_blank', 'noopener,noreferrer') !== undefined) {
+            post('/api/works/visit', { id: item.id, session: webSession() }).catch(() => { });
+            toast('此網站禁止嵌入，已改用分頁開啟'); return;
+        }
+    }
     if (shorts.active && !shorts.suspended) pauseShortsForPlayer();
     bossActive = false; document.body.classList.remove('boss-mode'); $('bossScreen').hidden = true;
     for (const stop of [...previews]) stop();
@@ -404,7 +442,11 @@ function installWebControls() {
     $('webBlockedOpen').innerHTML = webIcon('external') + '以分頁開啟';
     const open = () => { if (webView.item) window.open(webView.item.url, '_blank', 'noopener,noreferrer') };
     $('webOpenTab').onclick = open; $('webBlockedOpen').onclick = open;
-    $('webTryEmbed').onclick = () => { webView.forceEmbed = true; loadWebFrame() };
+    $('webTryEmbed').onclick = () => { webView.forceEmbed = true; loadWebFrame(true) };
+    $('webBlockedDirect').onchange = () => { saveWebSetting('direct-tab', $('webBlockedDirect').checked ? 1 : 0); toast($('webBlockedDirect').checked ? '之後禁止嵌入的作品會直接以分頁開啟' : '已取消直接以分頁開啟') };
+    $('webEmbedHintOpen').innerHTML = webIcon('external') + '以分頁開啟';
+    $('webEmbedHintOpen').onclick = open;
+    $('webEmbedHintClose').onclick = () => { $('webEmbedHint').hidden = true };
     $('webClose').onclick = closeWebWork;
     $('webBoss').onclick = () => bossMode();
     $('webModal').addEventListener('cancel', event => { event.preventDefault(); if (document.fullscreenElement) document.exitFullscreen().catch(() => { }); else closeWebWork() });

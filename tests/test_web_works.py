@@ -117,6 +117,35 @@ class WebWorkTests(unittest.TestCase):
             finally:connection.close()
         migrated=WebWorks(db,self.root,self.lib.source_groups)
         self.assertEqual(migrated.get('w'+'0'*20)['notes'],'')
+    def test_inspect_reads_headers_from_real_responses(self):
+        import http.server
+        from web_works import inspect
+        class Site(http.server.BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_GET(self):
+                status={'/deny':200,'/csp':200,'/login':403,'/error':500}.get(self.path,200)
+                self.send_response(status);self.send_header('Content-Type','text/html; charset=utf-8')
+                if self.path in ('/deny','/error'):self.send_header('X-Frame-Options','DENY')
+                if self.path=='/csp':self.send_header('Content-Security-Policy',"frame-ancestors 'self' https://trusted.example")
+                body=b'<title>Fixture page</title>';self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+        server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Site);threading.Thread(target=server.serve_forever,daemon=True).start()
+        base=f'http://127.0.0.1:{server.server_port}'
+        try:
+            self.assertEqual(inspect(base+'/ok'),('allowed','','Fixture page'))
+            policy,reason,_=inspect(base+'/deny');self.assertEqual(policy,'blocked');self.assertIn('X-Frame-Options: DENY',reason)
+            policy,reason,_=inspect(base+'/csp');self.assertEqual(policy,'blocked');self.assertIn('frame-ancestors',reason)
+            self.assertEqual(inspect(base+'/error')[0],'blocked')
+            policy,reason,_=inspect(base+'/login');self.assertEqual(policy,'unknown');self.assertIn('403',reason)
+        finally:server.shutdown();server.server_close()
+        policy,reason,_=inspect('http://127.0.0.1:9/unreachable',timeout=2);self.assertEqual(policy,'unknown');self.assertIn('無法連線',reason)
+    def test_check_frame_updates_reason(self):
+        works=self.lib.web_works;row=works.add('site','https://blocked.example.test/');self.wait_idle()
+        works.probe=lambda url:('blocked','','X-Frame-Options: SAMEORIGIN')
+        self.assertEqual(works.check_frame(row['id']),{'frame':'blocked','reason':'X-Frame-Options: SAMEORIGIN'})
+        self.lib.refresh_web();item=self.lib.web_item(row['id'])
+        self.assertEqual((item['frame'],item['frameReason']),('blocked','X-Frame-Options: SAMEORIGIN'));self.assertIsNotNone(item['frameChecked'])
+        works.probe=lambda url:(_ for _ in ()).throw(OSError('offline'))
+        self.assertEqual(works.check_frame(row['id'])['frame'],'unknown')
     def test_group_kinds(self):
         groups=self.lib.source_groups
         with self.assertRaises(ValueError):groups.assign([0],'site')

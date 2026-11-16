@@ -1,6 +1,6 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v2.4.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-16。適用程式版本：v2.5.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
@@ -26,6 +26,10 @@
 - 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
 - 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
 - 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
+
+## 禁止嵌入偵測（v2.5.0）
+
+- web_works.inspect 以 Edge UA 讀取標頭，HTTPError 也讀其標頭；401／403 且未見阻擋標頭時回 unknown。/api/works/check 同步重新檢查。前端 verifyWebFrame 在 allowed 且 600 秒內檢查過時略過。被擋顯示 #webBlocked 提醒；unknown 顯示 #webEmbedHint。localStorage localcinema:web-direct-tab=1 時，非自動開啟的 blocked 作品直接 window.open。無法偵測只靠 JavaScript 阻擋（frame-busting）或需登入的頁面，這類只能靠提示列。
 
 ## 資料備份（v2.4.0）
 

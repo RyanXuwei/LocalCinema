@@ -608,6 +608,8 @@ def make_handler(lib):
                     with lib.lock:lib.web_works.update(item['id'],data.get('url'),data.get('title'),data.get('notes'))
                 elif action=='delete':
                     with lib.lock:lib.web_works.delete(item['id'],data.get('confirm'))
+                elif action=='check':
+                    result=lib.web_works.check_frame(item['id']);lib.refresh_web();return self.reply(200,result)
                 elif action=='snapshot' and data.get('now'):
                     if not lib.web_works.capture_now(item['id']):return self.reply(502,{'error':'無法擷取此網址的畫面，請確認網站可開啟。'})
                 elif action=='snapshot':lib.web_works.queue_snapshot(item['id'])

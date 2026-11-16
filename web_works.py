@@ -41,10 +41,10 @@ def clean_notes(value):
     if len(text)>5000:raise ValueError('備註最多 5000 字。')
     return text
 
-def frame_policy(headers):
-    """'blocked' when the site forbids being framed by another origin, else 'allowed'."""
-    options=(headers.get('X-Frame-Options') or '').strip().lower()
-    if options in ('deny','sameorigin') or options.startswith('allow-from'):return 'blocked'
+def frame_check(headers):
+    """('blocked', reason) when the site forbids being framed by another origin, else ('allowed', '')."""
+    raw=(headers.get('X-Frame-Options') or '').strip();options=raw.lower()
+    if options in ('deny','sameorigin') or options.startswith('allow-from'):return 'blocked','X-Frame-Options: '+raw
     policies=headers.get_all('Content-Security-Policy') if hasattr(headers,'get_all') else [headers.get('Content-Security-Policy')]
     for policy in policies or []:
         if not policy:continue
@@ -52,22 +52,42 @@ def frame_policy(headers):
             parts=directive.strip().split()
             if parts and parts[0].lower()=='frame-ancestors':
                 sources=[source.lower() for source in parts[1:]]
-                if '*' not in sources:return 'blocked'
-    return 'allowed'
+                if '*' not in sources:return 'blocked','Content-Security-Policy: '+' '.join(parts)[:160]
+    return 'allowed',''
 
-def probe(url,timeout=10):
-    """Read response headers and the page title without running scripts."""
-    request=Request(url,headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LocalCinemaSnapshot/2.0','Accept':'text/html,*/*;q=0.8'})
-    with urlopen(request,timeout=timeout) as response:
-        policy=frame_policy(response.headers)
+def frame_policy(headers):
+    return frame_check(headers)[0]
+
+BROWSER_HEADERS={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 Edg/130.0',
+                 'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','Accept-Language':'zh-TW,zh;q=0.9,en;q=0.8'}
+
+def inspect(url,timeout=10):
+    """Headers and title as a browser would receive them; HTTP error pages still carry framing headers."""
+    from urllib.error import HTTPError,URLError
+    request=Request(url,headers=BROWSER_HEADERS)
+    try:response=urlopen(request,timeout=timeout)
+    except HTTPError as error:response=error
+    except (URLError,OSError,ValueError) as error:
+        reason=getattr(error,'reason',error)
+        return 'unknown','無法連線到網站：'+str(reason)[:120],''
+    with response:
+        policy,reason=frame_check(response.headers)
         title=''
         if 'html' in (response.headers.get('Content-Type') or '').lower():
-            body=response.read(262144).decode(response.headers.get_content_charset() or 'utf-8',errors='replace')
+            try:body=response.read(262144).decode(response.headers.get_content_charset() or 'utf-8',errors='replace')
+            except OSError:body=''
             match=re.search(r'<title[^>]*>(.*?)</title>',body,re.I|re.S)
             if match:
                 import html
-                title=html.unescape(match.group(1))
-        return policy,clean_title(title,url) if title else ''
+                title=clean_title(html.unescape(match.group(1)),url)
+        status=getattr(response,'status',None) or getattr(response,'code',200)
+        if policy=='allowed' and status in (401,403):return 'unknown',f'網站回應 HTTP {status}，可能需要登入或阻擋自動檢查',title
+        return policy,reason,title
+
+def probe(url,timeout=10):
+    """Read response headers and the page title without running scripts: (policy, title, reason)."""
+    policy,reason,title=inspect(url,timeout)
+    return policy,title,reason
 
 def find_browser():
     candidates=[]
@@ -113,15 +133,17 @@ class WebWorks:
             connection.execute('CREATE INDEX IF NOT EXISTS web_works_group ON web_works(group_id)')
             columns={row[1] for row in connection.execute('PRAGMA table_info(web_works)')}
             if 'notes' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+            if 'frame_reason' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN frame_reason TEXT NOT NULL DEFAULT ''")
+            if 'frame_checked' not in columns:connection.execute("ALTER TABLE web_works ADD COLUMN frame_checked REAL")
     def web_group(self,group_id):
         group=self.groups.get(group_id)
         if group_kind(group)!=WEB_KIND:raise ValueError('此群組不是作品群組。')
         return group
     def rows(self,group_id=None):
         with self.db() as connection:
-            query='SELECT id,group_id,url,title,created,updated,snapshot,snapshot_at,frame,notes FROM web_works'
+            query='SELECT id,group_id,url,title,created,updated,snapshot,snapshot_at,frame,notes,frame_reason,frame_checked FROM web_works'
             rows=connection.execute(query+(' WHERE group_id=?' if group_id else '')+' ORDER BY created,id',(group_id,) if group_id else ()).fetchall()
-        return [dict(zip(('id','group','url','title','created','updated','snapshot','snapshotAt','frame','notes'),row)) for row in rows]
+        return [dict(zip(('id','group','url','title','created','updated','snapshot','snapshotAt','frame','notes','frameReason','frameChecked'),row)) for row in rows]
     def get(self,work_id):
         if not isinstance(work_id,str) or not ID_PATTERN.fullmatch(work_id):raise ValueError('作品不存在。')
         found=[row for row in self.rows() if row['id']==work_id]
@@ -140,7 +162,7 @@ class WebWorks:
             if row['group'] not in valid:continue
             result.append({'id':row['id'],'kind':WEB_KIND,'title':row['title'],'url':row['url'],'updated':row['updated'],
                            'tags':[],'groups':[row['group']],'episodes':[],'frame':row['frame'],'snapshotAt':row['snapshotAt'],
-                           'snapshotPending':row['id'] in self.pending,'notes':row['notes'] or '','picture':str(self.snapshot_path(row) or '') or None})
+                           'snapshotPending':row['id'] in self.pending,'notes':row['notes'] or '','frameReason':row['frameReason'] or '','frameChecked':row['frameChecked'],'picture':str(self.snapshot_path(row) or '') or None})
         return result
     def add(self,group_id,url,title='',notes=''):
         self.web_group(group_id);url=normalize_url(url);notes=clean_notes(notes);now=time.time()
@@ -192,6 +214,18 @@ class WebWorks:
             finally:
                 with self.lock:self.pending.discard(work_id)
                 self.on_change()
+    def read_frame(self,url):
+        try:
+            result=tuple(self.probe(url))
+            return (result+('',))[:3] if len(result)<3 else result[:3]
+        except Exception as error:
+            self.log(f'作品網址無法讀取標頭：{error}');return 'unknown','無法讀取網站回應：'+str(error)[:120],''
+    def check_frame(self,work_id):
+        """Re-read the framing headers right now, e.g. just before the viewer embeds the site."""
+        row=self.get(work_id);policy,_,reason=self.read_frame(row['url'])
+        with self.db() as connection:
+            connection.execute('UPDATE web_works SET frame=?,frame_reason=?,frame_checked=? WHERE id=? AND url=?',(policy,reason,time.time(),work_id,row['url']))
+        return {'frame':policy,'reason':reason}
     def capture_now(self,work_id):
         """Synchronous recapture with only a short settle time, for the viewer's retake button."""
         with self.lock:
@@ -225,9 +259,7 @@ class WebWorks:
     def refresh_snapshot(self,work_id,delay_ms=SNAPSHOT_DELAY_MS):
         try:row=self.get(work_id)
         except ValueError:return False
-        policy='unknown';title=''
-        try:policy,title=self.probe(row['url'])
-        except Exception as error:self.log(f'作品網址無法讀取標頭：{error}')
+        policy,title,reason=self.read_frame(row['url'])
         browser=self.browser or find_browser();name=work_id+'-'+secrets.token_hex(4)+'.jpg';captured=False
         if browser:captured=bool(self.capture(browser,row['url'],self.folder/name,delay_ms=delay_ms))
         else:self.log('找不到 Edge 或 Chrome，無法擷取作品快照。')
@@ -237,7 +269,7 @@ class WebWorks:
         if current['url']!=row['url']:
             (self.folder/name).unlink(missing_ok=True);return False
         with self.db() as connection:
-            connection.execute('UPDATE web_works SET frame=? WHERE id=?',(policy,work_id))
+            connection.execute('UPDATE web_works SET frame=?,frame_reason=?,frame_checked=? WHERE id=?',(policy,reason,time.time(),work_id))
             if title:connection.execute('UPDATE web_works SET title=? WHERE id=? AND title_locked=0',(title,work_id))
             if captured:connection.execute('UPDATE web_works SET snapshot=?,snapshot_at=? WHERE id=?',(name,time.time(),work_id))
         if captured:
