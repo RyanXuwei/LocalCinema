@@ -53,3 +53,7 @@ header .sourceGroupToggle{width:52px;min-width:52px;height:52px;padding:2px;disp
 @media(max-width:650px){.seekRow{margin-top:12px;margin-bottom:10px}}
 /* Optional: backend can hide studio branding and credit on the web pages. */
 .hide-branding .studio-credit,.hide-branding header .sub{display:none}
+/* Favourite on: solid white heart so the state reads at a glance. */
+#favorite[aria-pressed=true],.shortSideTools button[aria-label='收藏'][aria-pressed=true],#webFavorite.is-on{color:#fff!important}
+#favorite[aria-pressed=true] .playerIcon,.shortSideTools button[aria-label='收藏'][aria-pressed=true] .playerIcon,#webFavorite.is-on .playerIcon{fill:#fff!important;stroke:#fff!important}
+#webFavorite.is-on{background:transparent!important;box-shadow:none!important}
