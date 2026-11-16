@@ -11,6 +11,7 @@
 | operation_progress.py | 最新進度快照、作業階段與 FFmpeg 進度解析 |
 | playback_storage.py | 可選快取目錄、二次驗證搬移、空間統計與低空間停止轉檔 |
 | conversion_store.py | 人工確認、MP4 副本驗證、原檔回收、持久識別別名 |
+| db_backup.py | 資料庫與設定備份、定期排程、保留清理、還原前安全備份與檔名確認還原 |
 | web_works.py | 作品網址資料表、網址驗證、嵌入政策檢查、Edge／Chrome 無頭快照佇列 |
 | source_help.py | 目錄／平鋪片單圖解視窗 |
 | index.html | 前端完整 UI、播放器、Short、隱蔽與群組選擇 |

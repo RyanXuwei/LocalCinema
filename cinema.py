@@ -11,6 +11,7 @@ from source_help import open_source_help
 from version import APP_VERSION
 from group_access import GroupAccess,visible_payload,may_read
 from web_works import WebWorks,WEB_KIND,group_kind
+from db_backup import DatabaseBackups,INTERVALS as BACKUP_INTERVALS
 from http.cookies import SimpleCookie
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
@@ -199,6 +200,7 @@ class Library:
         self.conversion_store=ConversionStore(self.db_path)
         self.web_works=WebWorks(self.db,DATA,self.source_groups,on_change=self.refresh_web,log=log)
         self.refresh_web()
+        self.backups=DatabaseBackups(self.db_path,Path(self.db_path).parent/'backups',self.config,save_config,log,self.after_restore)
         try:
             import imageio_ffmpeg
             self.ffmpeg=imageio_ffmpeg.get_ffmpeg_exe()
@@ -453,7 +455,7 @@ class Library:
                 except OSError: pass
                 self.conversion_idle.set()
     def shutdown(self):
-        self.auto_promoter.close(); self.web_works.close()
+        self.auto_promoter.close(); self.web_works.close(); self.backups.close()
         with self.lock:
             self.closing=True; process=self.convert_process
         self.shutdown_event.set(); self.processing_stop.set(); self.background_wake.set()
@@ -525,6 +527,10 @@ class Library:
                         self.pictures[item['id']]=cache; self.revision+=1
         except Exception as e: self.log(f'掃描／縮圖錯誤：{e}')
         finally: self.scanning=False
+    def after_restore(self):
+        with self.group_access.lock:self.group_access.sessions.clear()
+        self.refresh_web()
+        threading.Thread(target=self.rescan,daemon=True).start()
     def refresh_web(self):
         """Web works live beside scanned media; rebuilt without rescanning folders."""
         works=self.web_works.items()
@@ -765,6 +771,104 @@ def make_handler(lib):
                 self.reply(404,{'error':'不存在'})
             except (ValueError,KeyError,TypeError): self.reply(400,{'error':'資料格式錯誤'})
     return Handler
+
+def format_size(size):
+    for unit in ('B','KB','MB','GB'):
+        if size<1024 or unit=='GB':return f'{size:.0f} {unit}' if unit=='B' else f'{size:.1f} {unit}'
+        size/=1024
+
+def build_backup_page(parent,root,lib):
+    """Scheduled backups, manual backup and guarded restore of library.sqlite3 and config.json."""
+    backups=lib.backups
+    ttk.Label(parent,text='資料庫備份',font=('Microsoft JhengHei UI',14)).pack(anchor='w',padx=20,pady=(14,2))
+    ttk.Label(parent,text='使用SQLite線上備份API，服務運作中也能安全建立。每份備份包含資料庫（收藏、觀看記錄、關鍵幀、轉檔紀錄、網路作品與備註）與群組／標籤設定。自動備份預設關閉。',wraplength=1000,justify='left').pack(anchor='w',padx=20)
+    settings=backups.settings()
+    form=ttk.LabelFrame(parent,text='定期備份',padding=12);form.pack(fill='x',padx=20,pady=10)
+    enabled=tk.BooleanVar(value=settings['enabled'])
+    ttk.Checkbutton(form,text='啟用定期備份',variable=enabled).grid(row=0,column=0,sticky='w',padx=(0,18))
+    ttk.Label(form,text='備份頻率').grid(row=0,column=1,sticky='e')
+    labels=list(BACKUP_INTERVALS.values());frequency=tk.StringVar(value=BACKUP_INTERVALS[settings['hours']])
+    ttk.OptionMenu(form,frequency,frequency.get(),*labels).grid(row=0,column=2,padx=(6,18))
+    ttk.Label(form,text='保留天數').grid(row=0,column=3,sticky='e')
+    days=tk.StringVar(value=str(settings['days']))
+    ttk.Spinbox(form,from_=1,to=3650,textvariable=days,width=6).grid(row=0,column=4,padx=(6,18))
+    status=tk.StringVar()
+    def save_settings():
+        try:
+            hours=next(hours for hours,label in BACKUP_INTERVALS.items() if label==frequency.get())
+            backups.configure(enabled.get(),hours,int(days.get()));refresh();messagebox.showinfo('備份設定','已儲存備份設定。',parent=root)
+        except (ValueError,StopIteration) as error:messagebox.showerror('無法儲存',str(error) or '設定格式錯誤。',parent=root)
+    ttk.Button(form,text='儲存備份設定',command=save_settings).grid(row=0,column=5,padx=(0,8))
+    ttk.Label(form,textvariable=status).grid(row=1,column=0,columnspan=6,sticky='w',pady=(10,0))
+    actions=ttk.Frame(parent);actions.pack(fill='x',padx=20)
+    def run_in_background(work,done):
+        results=queue.Queue()
+        threading.Thread(target=lambda:results.put(_capture(work)),daemon=True).start()
+        def finish():
+            if results.empty():root.after(150,finish);return
+            done(*results.get())
+        root.after(150,finish)
+    def backup_now():
+        button.configure(state='disabled');status.set('正在建立備份…')
+        def done(result,error):
+            button.configure(state='normal');refresh()
+            if error:messagebox.showerror('備份失敗',str(error),parent=root)
+            else:lib.log(f'已建立手動備份：{result}');messagebox.showinfo('立即備份',f'已建立備份：\n{result}',parent=root)
+        run_in_background(lambda:backups.create('manual'),done)
+    button=ttk.Button(actions,text='立即備份',command=backup_now);button.pack(side='left')
+    ttk.Button(actions,text='開啟備份資料夾',command=lambda:(backups.folder.mkdir(parents=True,exist_ok=True),os.startfile(backups.folder)) if os.name=='nt' else None).pack(side='left',padx=8)
+    ttk.Label(parent,text='可還原的備份',font=('Microsoft JhengHei UI',12)).pack(anchor='w',padx=20,pady=(14,4))
+    holder=ttk.Frame(parent);holder.pack(fill='both',expand=True,padx=20)
+    table=ttk.Treeview(holder,columns=('time','kind','name','size'),show='headings',height=8,selectmode='browse')
+    for column,text,width in (('time','備份時間',170),('kind','類型',90),('name','檔名',480),('size','大小',90)):
+        table.heading(column,text=text);table.column(column,width=width,stretch=column=='name')
+    bar=ttk.Scrollbar(holder,orient='vertical',command=table.yview);table.configure(yscrollcommand=bar.set)
+    bar.pack(side='right',fill='y');table.pack(fill='both',expand=True)
+    kinds={'automatic':'自動','manual':'手動','pre-restore':'還原前安全備份'}
+    def restore():
+        choice=table.selection()
+        if not choice:messagebox.showinfo('還原','請先在清單中選取一個備份。',parent=root);return
+        name=choice[0]
+        dialog=tk.Toplevel(root);dialog.title('還原備份');dialog.configure(bg='#171817');dialog.transient(root)
+        ttk.Label(dialog,text='還原會以備份內容取代目前的資料庫與群組設定。\n還原前系統會自動建立目前資料的安全備份。',justify='left').pack(anchor='w',padx=18,pady=(16,8))
+        ttk.Label(dialog,text='請輸入備份檔名以確認：').pack(anchor='w',padx=18)
+        ttk.Label(dialog,text=name,foreground='#d7c79a').pack(anchor='w',padx=18,pady=4)
+        typed=tk.StringVar();entry=ttk.Entry(dialog,textvariable=typed,width=64);entry.pack(fill='x',padx=18)
+        include=tk.BooleanVar(value=True)
+        ttk.Checkbutton(dialog,text='同時還原群組、標籤與後台設定（config.json）',variable=include).pack(anchor='w',padx=18,pady=8)
+        def confirm():
+            if typed.get().strip()!=name:messagebox.showerror('檔名不符','輸入的檔名與選取的備份不同。',parent=dialog);return
+            dialog.destroy();status.set('正在還原…')
+            def done(result,error):
+                refresh()
+                if error:messagebox.showerror('還原失敗',str(error),parent=root)
+                else:messagebox.showinfo('還原完成',f'已還原 {name}。\n還原前的資料已另存：{result}\n網頁重新整理後會看到還原後的內容。',parent=root)
+            run_in_background(lambda:backups.restore(name,typed.get().strip(),include.get()),done)
+        buttons=ttk.Frame(dialog);buttons.pack(fill='x',padx=18,pady=(4,14))
+        ttk.Button(buttons,text='還原',command=confirm).pack(side='right');ttk.Button(buttons,text='取消',command=dialog.destroy).pack(side='right',padx=6)
+        dialog.grab_set();entry.focus_set()
+    restore_row=ttk.Frame(parent);restore_row.pack(fill='x',padx=20,pady=8)
+    ttk.Button(restore_row,text='還原選取的備份',command=restore).pack(side='left')
+    ttk.Label(parent,text='注意：備份不含影片、海報與網頁作品快照圖片；還原後缺少的快照可在作品檢視器重新擷取。過期備份依保留天數清理（最新一份一定保留），停用定期備份時不自動刪除。備份存放在：'+str(backups.folder),wraplength=1000,justify='left').pack(anchor='w',padx=20,pady=(0,12))
+    def refresh():
+        selected=table.selection();table.delete(*table.get_children())
+        for entry in backups.list():
+            table.insert('','end',iid=entry['name'],values=(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(entry['time'])),kinds[entry['kind']],entry['name'],format_size(entry['size'])))
+        for iid in selected:
+            if table.exists(iid):table.selection_set(iid)
+        settings=backups.settings();latest=backups.latest()
+        last=time.strftime('%Y-%m-%d %H:%M',time.localtime(latest['time'])) if latest else '尚無'
+        status.set(('定期備份目前已啟用（'+BACKUP_INTERVALS[settings['hours']]+f"，保留 {settings['days']} 天）" if settings['enabled'] else '定期備份目前已停用')+f'；最近備份：{last}'+(f'；上次錯誤：{backups.last_error}' if backups.last_error else ''))
+    def poll():
+        try:
+            if parent.winfo_exists():refresh()
+        except tk.TclError:return
+        root.after(30000,poll)
+    refresh();root.after(30000,poll)
+
+def _capture(work):
+    try:return work(),None
+    except Exception as error:return None,error
 
 def render_operation_progress(bar,text,value):
     phase=value['phase'];size=value['size'];done=value['done']
@@ -1031,8 +1135,9 @@ def _run(instance):
     ttk.Label(content,text='加入多個影片來源，啟動後以瀏覽器觀看；關閉視窗可留在系統列。').pack(anchor='w',padx=20)
     outer_content=content
     backend_pages=ttk.Notebook(outer_content,style='Source.TNotebook'); backend_pages.pack(fill='both',expand=True,padx=12,pady=8)
-    sources_page=ttk.Frame(backend_pages); service_page=ttk.Frame(backend_pages)
-    backend_pages.add(sources_page,text='片源與群組');backend_pages.add(service_page,text='服務與轉檔')
+    sources_page=ttk.Frame(backend_pages); service_page=ttk.Frame(backend_pages); backup_page=ttk.Frame(backend_pages)
+    backend_pages.add(sources_page,text='片源與群組');backend_pages.add(service_page,text='服務與轉檔');backend_pages.add(backup_page,text='資料備份')
+    build_backup_page(backup_page,root,lib);lib.backups.start()
     content=sources_page
     group_toolbar=ttk.Frame(content);group_toolbar.pack(fill='x',padx=20,pady=(12,0))
     ttk.Label(group_toolbar,text='片源群組',font=('Microsoft JhengHei UI',12)).pack(side='left')

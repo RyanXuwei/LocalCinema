@@ -43,6 +43,10 @@
 
 作品快照存於 DATA/web-snapshots，檔名為作品 ID 加隨機尾碼的 JPEG；成功擷取新圖後才刪舊圖。使用者自填標題會鎖定，不被網頁標題覆蓋。刪除作品會在同一交易移除 web_works、favorites、exposure、watches 中該 ID，再刪快照與群組標籤。刪除作品群組會先刪除群組內全部作品。開啟作品時以 watches 記錄（episode_id 等於作品 ID）。
 
+## 資料備份（v2.4.0）
+
+備份放在資料庫同層的 backups 資料夾（正式環境為 DATA/backups）。檔名 `library-<UTC yyyymmddThhmmssffffffZ>-<automatic|manual|pre-restore>.sqlite3`，同名 `.config.json` 為當時 config。建立時先寫 .partial，SQLite backup API 複製並 integrity_check 通過後才改名。設定鍵 backup_enabled（預設 false）、backup_interval_hours（1／6／24／168）、backup_retention_days（預設 7）。還原以 backup API 寫回現有資料庫，config 原地取代但保留目前的備份設定；完成後撤銷隱藏頻道授權並重新掃描。
+
 ## 遷移與更新規則
 
 現有表使用 CREATE TABLE IF NOT EXISTS，相容升級不可 DROP 或重設使用者資料。新欄位要有舊設定回退，任何格式變更先測隔離樣本。更新／解除安裝不碰 DATA。SQLite 備份請完整退出程式後進行，避免只複製主檔卻忽略 WAL。
