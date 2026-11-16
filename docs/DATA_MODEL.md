@@ -10,6 +10,7 @@
 - group_tags：group id → item id → 標籤陣列。
 - 舊 categories／tags 保留相容資訊，不應再當成所有群組的共用分類來源。
 - groups[].kind：缺少時視為 media；"web" 為作品群組，只收網址不收根目錄。
+- hide_branding：是否在網頁隱藏 BitingBox Studio 副標、頁尾標誌與署名，預設 false；變更會遞增 privacy_revision 讓已開啟頁面同步。
 - lock_on_page_close：是否在同一瀏覽器最後一個分頁離開後撤銷隱藏頻道授權，預設 false。
 - 其他設定包含背景預轉、隱蔽等；保留未知設定，不以固定預設物件覆蓋整份檔案。
 

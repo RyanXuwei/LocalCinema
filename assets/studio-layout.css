@@ -51,3 +51,5 @@ header .sourceGroupToggle{width:52px;min-width:52px;height:52px;padding:2px;disp
 .controlMenu:hover:before,.controlMenu.open:before,.controlMenu:focus-within:before{pointer-events:auto}
 @media(hover:hover) and (pointer:fine){.speedPopup{width:64px;max-height:196px;padding:4px}.speedPopup button{height:28px;min-height:28px}.volumePopup{width:40px;height:132px;gap:8px;padding:8px 6px}.playerTools .volumePopup input[type=range]{height:90px;min-height:90px}}
 @media(max-width:650px){.seekRow{margin-top:12px;margin-bottom:10px}}
+/* Optional: backend can hide studio branding and credit on the web pages. */
+.hide-branding .studio-credit,.hide-branding header .sub{display:none}

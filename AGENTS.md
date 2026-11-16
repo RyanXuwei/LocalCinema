@@ -47,7 +47,7 @@ README 面向使用者，聚焦程式功能、用法、注意事項、部署與�
 
 ## 品牌與檔案
 
-保留「映室 / LOCAL CINEMA」、BitingBox Studio Logo 及 `Created by Ryan Hsu. 2026 © Copyright` 署名。Logo 只等比例顯示，不重繪路徑；改色或造型需使用者授權。
+保留「映室 / LOCAL CINEMA」、BitingBox Studio Logo 及 `Created by Ryan Hsu. 2026 © Copyright` 署名。使用者可在後台選擇隱藏網頁上的工作室與署名（hide_branding，預設關閉）；不得移除原始碼與文件中的署名，也不得把預設改為隱藏。Logo 只等比例顯示，不重繪路徑；改色或造型需使用者授權。
 
 Git 保存原始碼、預設素材與文件；`outputs/`、`build/`、`dist/` 不入版控。安裝檔另行發行，不將大型 EXE 提交進 Git 歷史。
 

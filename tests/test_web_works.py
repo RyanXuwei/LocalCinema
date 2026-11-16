@@ -101,4 +101,17 @@ class WebWorkTests(unittest.TestCase):
             self.assertEqual(request('/assets/web-works.js',method='GET')[0],200)
         finally:server.shutdown();server.server_close()
 
+class BrandingTests(unittest.TestCase):
+    def test_hide_branding_option(self):
+        tmp=tempfile.TemporaryDirectory(dir=TEST_HOME);root=Path(tmp.name)
+        lib=Library(lambda text:None,db_path=root/'brand.db',config={'roots':[],'tags':{},'categories':[]})
+        try:
+            page=lib.page_html().decode();revision=lib.privacy_state()['revision']
+            self.assertNotIn('hide-branding',page.split('<head>')[0][:400]);self.assertIn('by BitingBox Studio</title>',page)
+            lib.set_hide_branding(True);page=lib.page_html().decode()
+            self.assertIn('class="hide-branding"',page);self.assertIn('<title>LocalCinema</title>',page)
+            self.assertTrue(lib.privacy_state()['hideBranding']);self.assertGreater(lib.privacy_state()['revision'],revision)
+            lib.set_privacy(True);self.assertIn('class="privacy-blur hide-branding"',lib.page_html().decode())
+        finally:lib.shutdown();tmp.cleanup()
+
 if __name__=='__main__':unittest.main()

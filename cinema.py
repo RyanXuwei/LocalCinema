@@ -317,13 +317,19 @@ class Library:
                 if target.is_file() and target.stat().st_size: self.register_conversion(key,source,target)
             except OSError: pass
     def privacy_state(self):
-        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0)),'lockOnPageClose':bool(self.config.get('lock_on_page_close',False))}
+        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0)),'lockOnPageClose':bool(self.config.get('lock_on_page_close',False)),'hideBranding':bool(self.config.get('hide_branding',False))}
     def set_lock_on_page_close(self,enabled):
         with self.lock:
             self.config['lock_on_page_close']=bool(enabled);save_config(self.config)
             if enabled:
                 with self.group_access.lock:self.group_access.sessions.clear()
         self.log('關閉最後一個分頁即上鎖：'+('開啟，請重新解鎖頻道。' if enabled else '關閉。'))
+    def set_hide_branding(self,enabled):
+        with self.lock:
+            self.config['hide_branding']=bool(enabled)
+            self.config['privacy_revision']=int(self.config.get('privacy_revision',0))+1
+            save_config(self.config)
+        self.log('首頁已隱藏 BitingBox 與署名字樣。' if enabled else '首頁恢復顯示 BitingBox 與署名字樣。')
     def set_privacy(self,enabled):
         with self.lock:
             self.config['privacy_blur']=bool(enabled)
@@ -334,7 +340,9 @@ class Library:
         html=(BASE/'index.html').read_text('utf-8')
         state=self.privacy_state()
         if page_id:html=html.replace('<meta charset=', '<meta name="localcinema-page" content="'+page_id+'"><meta charset=',1)
-        return html.replace('<html lang="zh-Hant">','<html lang="zh-Hant" class="'+('privacy-blur' if state['enabled'] else '')+'" data-privacy-revision="'+str(state['revision'])+'">',1).encode('utf-8')
+        if state['hideBranding']:html=html.replace('<title>LocalCinema · by BitingBox Studio</title>','<title>LocalCinema</title>',1)
+        classes=' '.join(name for name,on in (('privacy-blur',state['enabled']),('hide-branding',state['hideBranding'])) if on)
+        return html.replace('<html lang="zh-Hant">','<html lang="zh-Hant" class="'+classes+'" data-privacy-revision="'+str(state['revision'])+'">',1).encode('utf-8')
     def set_background(self,enabled):
         with self.lock:
             self.background_enabled=bool(enabled)
@@ -1112,6 +1120,8 @@ def _run(instance):
     ttk.Checkbutton(privacy_row,text='隱蔽（所有影片、封面與預覽加上毛玻璃）',variable=privacy_var,command=lambda:lib.set_privacy(privacy_var.get())).pack(side='left')
     close_lock_var=tk.BooleanVar(value=bool(lib.config.get('lock_on_page_close',False)))
     ttk.Checkbutton(content,text='關閉頁面即上鎖（最後一個分頁關閉時）',variable=close_lock_var,command=lambda:lib.set_lock_on_page_close(close_lock_var.get())).pack(anchor='w',padx=20,pady=4)
+    branding_var=tk.BooleanVar(value=bool(lib.config.get('hide_branding',False)))
+    ttk.Checkbutton(content,text='隱藏首頁的 BitingBox Studio 與 Ryan Hsu 版權署名',variable=branding_var,command=lambda:lib.set_hide_branding(branding_var.get())).pack(anchor='w',padx=20,pady=4)
     background_row=ttk.Frame(content); background_row.pack(fill='x',padx=20,pady=(8,2))
     background_var=tk.BooleanVar(value=lib.background_enabled)
     def toggle_background():
