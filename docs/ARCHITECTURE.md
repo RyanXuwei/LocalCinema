@@ -35,7 +35,7 @@ HTTP 請求先經 Host／Origin／LAN admission，再依群組 session 判斷。
 
 ## 作品群組（v2.0.0）
 
-群組帶 kind：預設 media，作品群組為 web。web 群組不接受根目錄，後台片源分頁與右鍵移動清單只列 media 群組；群組管理視窗依 kind 分開顯示，排序只重排同類群組的位置。作品以 `w`＋20 位十六進位 ID 存在 SQLite web_works，Library.refresh_web 將作品合併進 items（kind=web、episodes 空陣列、url、frame、snapshotAt），所以篩選、收藏、標籤、推薦與隱藏頻道過濾沿用既有路徑；掃描影片時保留作品項目。
+群組帶 kind：預設 media，作品群組為 web。web 群組不接受根目錄；v2.3.0 起後台片源分頁同時列出 web 群組（網址／標題欄位、作品專用按鈕），右鍵移動清單只列 media 群組。群組管理視窗合併兩種類型，以「新增網路作品」建立 web 群組。作品以 `w`＋20 位十六進位 ID 存在 SQLite web_works，Library.refresh_web 將作品合併進 items（kind=web、episodes 空陣列、url、frame、snapshotAt），所以篩選、收藏、標籤、推薦與隱藏頻道過濾沿用既有路徑；掃描影片時保留作品項目。
 
 前端 openPlayer 遇到 kind=web 改開作品檢視器；卡片不安裝 hover 預覽；Short 以快照當 poster，不載入任何內容。iframe 只在檢視器開啟且未凍結時存在，關閉、凍結、切換或 Hide 立即移除。
 

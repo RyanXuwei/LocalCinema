@@ -1036,46 +1036,69 @@ def _run(instance):
     content=sources_page
     group_toolbar=ttk.Frame(content);group_toolbar.pack(fill='x',padx=20,pady=(12,0))
     ttk.Label(group_toolbar,text='片源群組',font=('Microsoft JhengHei UI',12)).pack(side='left')
-    ttk.Button(group_toolbar,text='＋ 新增／管理片源群組',command=lambda:open_group_manager(root,lib,refresh)).pack(side='right')
-    ttk.Button(group_toolbar,text='＋ 新增／管理作品群組',command=lambda:open_group_manager(root,lib,lambda:(lib.refresh_web(),refresh()),WEB_KIND)).pack(side='right',padx=(0,8))
+    ttk.Button(group_toolbar,text='＋ 新增／管理片源群組',command=lambda:open_group_manager(root,lib,groups_changed)).pack(side='right')
     source_tabs=ttk.Notebook(content,style='Source.TNotebook'); source_tabs.pack(fill='x',padx=20,pady=12)
-    group_trees={}; group_pages={}
+    group_trees={}; group_pages={}; group_kinds={}
     active_group_id=DEFAULT_GROUP
+    web_signature=[None]
+    def groups_changed():
+        lib.refresh_web(); refresh()
     def chosen_group():
         selected=source_tabs.select()
         return next((group_id for group_id,page in group_pages.items() if str(page)==selected),DEFAULT_GROUP)
+    def chosen_is_web():
+        return group_kinds.get(chosen_group())==WEB_KIND
     def current_tree():
         return group_trees.get(chosen_group())
+    def works_signature():
+        return tuple((row['id'],row['group'],row['url'],row['title']) for row in lib.web_works.rows())
+    def build_table(group_id,group,web):
+        page=ttk.Frame(source_tabs); group_pages[group_id]=page; group_kinds[group_id]=WEB_KIND if web else 'media'
+        if web:
+            table=ttk.Treeview(page,columns=('url','title'),show='headings',height=8,selectmode='extended')
+            table.heading('url',text='作品網址'); table.heading('title',text='標題')
+            table.column('url',width=520); table.column('title',width=220,stretch=False)
+            table.bind('<Double-1>',lambda event:edit_work())
+        else:
+            table=ttk.Treeview(page,columns=('path','mode'),show='headings',height=8,selectmode='extended')
+            table.heading('path',text='根目錄'); table.heading('mode',text='資料夾型式')
+            table.column('path',width=620); table.column('mode',width=120,stretch=False)
+            table.bind('<Button-3>',lambda event,table=table:source_context(event,table))
+        bar=ttk.Scrollbar(page,orient='vertical',command=table.yview); table.configure(yscrollcommand=bar.set)
+        bar.pack(side='right',fill='y'); table.pack(fill='both',expand=True)
+        group_trees[group_id]=table; source_tabs.add(page,text=group['name'])
     def refresh():
         nonlocal active_group_id
         current=chosen_group() if group_pages else active_group_id
-        groups=[group for group in lib.config['groups'] if group_kind(group)!=WEB_KIND]
-        valid={group['id'] for group in groups}
+        groups=list(lib.config['groups'])
+        kinds={group['id']:group_kind(group) for group in groups}
         for group_id in list(group_pages):
-            if group_id not in valid:
-                source_tabs.forget(group_pages[group_id]); group_pages.pop(group_id).destroy(); group_trees.pop(group_id)
-        for group in groups:
-            group_id=group['id']
-            if group_id not in group_pages:
-                page=ttk.Frame(source_tabs); group_pages[group_id]=page
-                table=ttk.Treeview(page,columns=('path','mode'),show='headings',height=8,selectmode='extended')
-                table.heading('path',text='根目錄'); table.heading('mode',text='資料夾型式')
-                table.column('path',width=620); table.column('mode',width=120,stretch=False)
-                bar=ttk.Scrollbar(page,orient='vertical',command=table.yview); table.configure(yscrollcommand=bar.set)
-                bar.pack(side='right',fill='y'); table.pack(fill='both',expand=True)
-                table.bind('<Button-3>',lambda event,table=table:source_context(event,table))
-                group_trees[group_id]=table; source_tabs.add(page,text=group['name'])
+            if group_id not in kinds or kinds[group_id]!=group_kinds[group_id]:
+                source_tabs.forget(group_pages[group_id]); group_pages.pop(group_id).destroy(); group_trees.pop(group_id); group_kinds.pop(group_id)
+        works={}
+        for row in lib.web_works.rows():works.setdefault(row['group'],[]).append(row)
+        for index,group in enumerate(groups):
+            group_id=group['id'];web=kinds[group_id]==WEB_KIND
+            if group_id not in group_pages:build_table(group_id,group,web)
             table=group_trees[group_id]; selected=table.selection()
             table.delete(*table.get_children())
-            rows=[(n,item) for n,item in enumerate(lib.config['roots']) if item.get('group',DEFAULT_GROUP)==group_id]
-            for n,item in rows:
-                table.insert('','end',iid=str(n),values=(item['path'],'平鋪型' if item['mode']=='flat' else '目錄型'))
+            if web:
+                rows=works.get(group_id,[])
+                for row in rows:table.insert('','end',iid=row['id'],values=(row['url'],row['title']))
+                label=f"{group['name']} · 網址 ({len(rows)})"
+            else:
+                rows=[(n,item) for n,item in enumerate(lib.config['roots']) if item.get('group',DEFAULT_GROUP)==group_id]
+                for n,item in rows:
+                    table.insert('','end',iid=str(n),values=(item['path'],'平鋪型' if item['mode']=='flat' else '目錄型'))
+                label=f"{group['name']} ({len(rows)})"
             for iid in selected:
                 if table.exists(iid): table.selection_add(iid)
-            source_tabs.insert(groups.index(group),group_pages[group_id])
-            source_tabs.tab(group_pages[group_id],text=f"{group['name']} ({len(rows)})")
-        active_group_id=current if current in valid else DEFAULT_GROUP
+            source_tabs.insert(index,group_pages[group_id])
+            source_tabs.tab(group_pages[group_id],text=label)
+        web_signature[0]=works_signature()
+        active_group_id=current if current in kinds else DEFAULT_GROUP
         source_tabs.select(group_pages[active_group_id])
+        update_controls()
     def add(mode):
         folder=filedialog.askdirectory()
         if folder:
@@ -1084,14 +1107,54 @@ def _run(instance):
                 lib.config['roots']=[r for r in lib.config['roots'] if str(Path(r['path']).resolve()).casefold()!=resolved.casefold()]
                 lib.config['roots'].append({'path':resolved,'mode':mode,'group':chosen_group()}); save_config(lib.config)
             refresh()
+    def work_dialog(existing=None):
+        dialog=tk.Toplevel(root);dialog.title('編輯作品' if existing else '新增作品網址');dialog.configure(bg='#171817');dialog.transient(root)
+        url=tk.StringVar(value=existing['url'] if existing else '');title=tk.StringVar(value=existing['title'] if existing else '')
+        ttk.Label(dialog,text='作品網址').pack(anchor='w',padx=18,pady=(14,2))
+        url_entry=ttk.Entry(dialog,textvariable=url,width=64);url_entry.pack(fill='x',padx=18)
+        ttk.Label(dialog,text='標題（選填，留白使用網頁標題）').pack(anchor='w',padx=18,pady=(10,2))
+        ttk.Entry(dialog,textvariable=title,width=64).pack(fill='x',padx=18)
+        ttk.Label(dialog,text='備註（選填，可多行）').pack(anchor='w',padx=18,pady=(10,2))
+        notes=tk.Text(dialog,height=6,width=64,bg='#242d25',fg='#dedfd3',insertbackground='#dedfd3',relief='flat',wrap='word')
+        notes.pack(fill='both',expand=True,padx=18);notes.insert('1.0',existing.get('notes','') if existing else '')
+        ttk.Label(dialog,text='新增後會在背景開啟網站 10 秒並擷取快照。',wraplength=460).pack(anchor='w',padx=18,pady=8)
+        result={}
+        def save():
+            try:
+                with lib.lock:
+                    if existing:lib.web_works.update(existing['id'],url.get(),title.get(),notes.get('1.0','end-1c'))
+                    else:lib.web_works.add(chosen_group(),url.get(),title.get(),notes.get('1.0','end-1c'))
+                result['ok']=True;dialog.destroy()
+            except ValueError as error:messagebox.showerror('無法儲存作品',str(error),parent=dialog)
+        buttons=ttk.Frame(dialog);buttons.pack(fill='x',padx=18,pady=(4,14))
+        ttk.Button(buttons,text='儲存',command=save).pack(side='right');ttk.Button(buttons,text='取消',command=dialog.destroy).pack(side='right',padx=6)
+        dialog.grab_set();url_entry.focus_set();dialog.wait_window()
+        if result:groups_changed()
+    def add_work():
+        if chosen_is_web():work_dialog()
+    def edit_work():
+        table=current_tree();selected=table.selection() if table else ()
+        if not chosen_is_web() or len(selected)!=1:
+            if chosen_is_web():messagebox.showinfo('編輯作品','請先選取一個作品網址。',parent=root)
+            return
+        try:work_dialog(lib.web_works.get(selected[0]))
+        except ValueError as error:messagebox.showerror('無法編輯作品',str(error),parent=root)
     def remove():
         table=current_tree()
         selected=table.selection() if table else ()
-        if selected:
+        if not selected:return
+        if chosen_is_web():
+            rows=[row for row in lib.web_works.rows(chosen_group()) if row['id'] in selected]
+            names='\n'.join('・'+row['title'] for row in rows[:8])+('\n…' if len(rows)>8 else '')
+            if not messagebox.askyesno('刪除作品',f'刪除 {len(rows)} 個作品網址？\n{names}\n\n只移除映室中的網址、快照、標籤與最愛，不影響網站本身。',parent=root):return
+            if not messagebox.askyesno('再次確認刪除','此操作無法復原。確定要刪除嗎？',icon='warning',parent=root):return
             with lib.lock:
-                for n in sorted(map(int,selected),reverse=True): lib.config['roots'].pop(n)
-                save_config(lib.config)
-            refresh()
+                for row in rows:lib.web_works.delete(row['id'],row['id'])
+            groups_changed();return
+        with lib.lock:
+            for n in sorted(map(int,selected),reverse=True): lib.config['roots'].pop(n)
+            save_config(lib.config)
+        refresh()
     def assign_group(target,selected):
         if not selected:return
         with lib.lock:lib.source_groups.assign([int(index) for index in selected],target)
@@ -1114,16 +1177,37 @@ def _run(instance):
         try:menu.tk_popup(event.x_root,event.y_root)
         finally:menu.grab_release()
         return 'break'
-    controls=ttk.Frame(content); controls.pack(fill='x',padx=20)
-    for label,call in [('新增目錄影片清單',lambda:add('directory')),('新增平鋪影片清單',lambda:add('flat')),('移除選取',remove)]: ttk.Button(controls,text=label,command=call).pack(side='left',padx=3)
-    ttk.Label(content,text='新增與移除只作用於目前群組。目錄列按右鍵可移動群組（支援複選）；變更後到「服務與轉檔」重新掃描。',wraplength=850).pack(anchor='w',padx=20,pady=(10,6))
-    guide_row=ttk.Frame(content);guide_row.pack(fill='x',padx=20,pady=(0,12))
+    controls_holder=ttk.Frame(content); controls_holder.pack(fill='x',padx=20)
+    media_controls=ttk.Frame(controls_holder); web_controls=ttk.Frame(controls_holder)
+    for label,call in [('新增目錄影片清單',lambda:add('directory')),('新增平鋪影片清單',lambda:add('flat')),('移除選取',remove)]: ttk.Button(media_controls,text=label,command=call).pack(side='left',padx=3)
+    for label,call in [('新增作品網址',add_work),('編輯選取',edit_work),('移除選取',remove)]: ttk.Button(web_controls,text=label,command=call).pack(side='left',padx=3)
+    source_hint=tk.StringVar()
+    ttk.Label(content,textvariable=source_hint,wraplength=850).pack(anchor='w',padx=20,pady=(10,6))
+    info_holder=ttk.Frame(content); info_holder.pack(fill='x')
+    media_info=ttk.Frame(info_holder)
+    guide_row=ttk.Frame(media_info);guide_row.pack(fill='x',padx=20,pady=(0,12))
     for title,description in [
         ('目錄影片清單｜一個資料夾＝一個片單','只收集根目錄下一層資料夾內的影片。\n同夾多支影片合為可選多集；不搜尋更深層。\n根目錄直接放的影片不會收集。'),
         ('平鋪影片清單｜一支影片＝一個片單','根目錄的每支影片，以檔名各建一個片單。\n下一層資料夾按目錄方式收集，可合成多集。\n不搜尋更深層；另設平鋪片源的子夾優先接管。')]:
         card=ttk.LabelFrame(guide_row,text=title,padding=12);card.pack(side='left',fill='both',expand=True,padx=(0,8))
         ttk.Label(card,text=description,wraplength=365,justify='left').pack(anchor='w')
-    ttk.Button(content,text='查看兩種收集方式的圖解',command=lambda:open_source_help(root,BASE)).pack(anchor='w',padx=20,pady=(0,12))
+    ttk.Button(media_info,text='查看兩種收集方式的圖解',command=lambda:open_source_help(root,BASE)).pack(anchor='w',padx=20,pady=(0,12))
+    web_info=ttk.Frame(info_holder)
+    web_card=ttk.LabelFrame(web_info,text='網路作品｜一個網址＝一個作品',padding=12);web_card.pack(fill='x',padx=20,pady=(0,12))
+    ttk.Label(web_card,text='新增後會在背景以 Edge／Chrome 開啟網站 10 秒並擷取快照。首頁卡片只顯示快照，放大才載入真實網頁，也可以分頁開啟。\n雙擊網址可編輯標題、網址與備註；刪除需確認兩次，只移除映室中的資料，不影響網站本身。',wraplength=800,justify='left').pack(anchor='w')
+    def update_controls(event=None):
+        web=chosen_is_web()
+        for frame in (media_controls,web_controls,media_info,web_info):frame.pack_forget()
+        (web_controls if web else media_controls).pack(side='left')
+        (web_info if web else media_info).pack(fill='x')
+        source_hint.set('新增、編輯與移除只作用於目前的網路作品群組；首頁同步更新，不需要重新掃描。' if web else '新增與移除只作用於目前群組。目錄列按右鍵可移動群組（支援複選）；變更後到「服務與轉檔」重新掃描。')
+    source_tabs.bind('<<NotebookTabChanged>>',update_controls)
+    def watch_works():
+        try:
+            if root.winfo_exists() and works_signature()!=web_signature[0]:refresh()
+        except Exception:pass
+        root.after(2000,watch_works)
+    root.after(2000,watch_works)
     content=service_page
     privacy_row=ttk.Frame(content); privacy_row.pack(fill='x',padx=20,pady=(8,2))
     privacy_var=tk.BooleanVar(value=bool(lib.config.get('privacy_blur',False)))

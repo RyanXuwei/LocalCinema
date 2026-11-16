@@ -111,19 +111,19 @@ class SourceGroups:
                 for group in self.config['groups']]
 
 
-def open_group_manager(root,lib,on_change,kind='media'):
+def open_group_manager(root,lib,on_change):
     import tkinter as tk
     from tkinter import ttk,simpledialog,filedialog,messagebox
     from PIL import Image,ImageTk
-    web=kind==WEB_KIND;attribute='work_group_window' if web else 'group_window'
-    previous=getattr(root,attribute,None)
+    previous=getattr(root,'group_window',None)
     if previous and previous.winfo_exists(): previous.deiconify(); previous.lift(); return
-    window=tk.Toplevel(root); setattr(root,attribute,window); window.title('作品群組設定' if web else '片源群組設定')
-    window.configure(bg='#171817'); window.geometry('780x560'); window.minsize(640,440)
-    ttk.Label(window,text='作品群組收藏 HTML 網頁作品' if web else '片源群組是最上層片單範圍',font=('Microsoft JhengHei UI',16)).pack(anchor='w',padx=16,pady=12)
-    ttk.Label(window,text=('作品網址在首頁切到此群組後新增或刪除；首頁群組選單與片源群組共用，隱藏頻道規則相同。' if web else '')+'按住群組列上下拖曳即可排序，放開後自動儲存；順序同步至後台分頁與首頁。',wraplength=730).pack(anchor='w',padx=16)
-    tree=ttk.Treeview(window,columns=('name','roots'),show='headings',height=8,selectmode='browse')
-    tree.heading('name',text='群組名稱'); tree.heading('roots',text='作品數' if web else '根目錄數');tree.column('name',width=480);tree.column('roots',width=100)
+    window=tk.Toplevel(root); root.group_window=window; window.title('片源群組設定')
+    window.configure(bg='#171817'); window.geometry('820x580'); window.minsize(680,460)
+    ttk.Label(window,text='片源群組是最上層片單範圍',font=('Microsoft JhengHei UI',16)).pack(anchor='w',padx=16,pady=12)
+    ttk.Label(window,text='「新增網路作品」建立只收網址的作品群組，影片目錄改用一般群組。按住群組列上下拖曳即可排序，放開後自動儲存；順序同步至後台分頁與首頁。',wraplength=770).pack(anchor='w',padx=16)
+    tree=ttk.Treeview(window,columns=('name','kind','roots'),show='headings',height=8,selectmode='browse')
+    tree.heading('name',text='群組名稱');tree.heading('kind',text='類型');tree.heading('roots',text='內容數')
+    tree.column('name',width=440);tree.column('kind',width=110,stretch=False);tree.column('roots',width=110,stretch=False)
     tree.pack(fill='both',expand=True,padx=16,pady=12)
     preview=ttk.Label(window);preview.pack(pady=5)
     actions=ttk.Frame(window); actions.pack(fill='x',padx=16,pady=12)
@@ -141,17 +141,18 @@ def open_group_manager(root,lib,on_change,kind='media'):
         tree.delete(*tree.get_children())
         with lib.lock:
             for group in lib.config['groups']:
-                if kind_of(group)!=kind:continue
-                count=len(lib.web_works.rows(group['id'])) if web else sum(r.get('group',DEFAULT_GROUP)==group['id'] for r in lib.config['roots'])
-                tree.insert('','end',iid=group['id'],values=(group['name']+('（隱藏）' if group.get('hidden') else ''),count))
+                web=kind_of(group)==WEB_KIND
+                count=f"{len(lib.web_works.rows(group['id']))} 個網址" if web else f"{sum(r.get('group',DEFAULT_GROUP)==group['id'] for r in lib.config['roots'])} 個目錄"
+                tree.insert('','end',iid=group['id'],values=(group['name']+('（隱藏）' if group.get('hidden') else ''),'網路作品' if web else '影片片源',count))
         if tree.exists(old): tree.selection_set(old)
         draw();on_change()
     def run(action):
         try:
-            if action=='new':
-                name=simpledialog.askstring('新增作品群組' if web else '新增片源群組','群組名稱：',parent=window)
+            if action in ('new','new-web'):
+                web=action=='new-web'
+                name=simpledialog.askstring('新增網路作品' if web else '新增片源群組','網路作品群組名稱：' if web else '群組名稱：',parent=window)
                 if name is None:return
-                with lib.lock: group=lib.source_groups.create(name,kind)
+                with lib.lock: group=lib.source_groups.create(name,WEB_KIND if web else 'media')
                 refresh(group['id']);return
             group_id=selected()
             if action=='rename':
@@ -162,7 +163,7 @@ def open_group_manager(root,lib,on_change,kind='media'):
                 filename=filedialog.askopenfilename(parent=window,title='選擇群組代表圖',filetypes=[('圖片','*.png *.jpg *.jpeg *.webp *.bmp')])
                 if not filename:return
                 with lib.lock:lib.source_groups.set_custom(group_id,filename)
-            elif action=='delete' and web:
+            elif action=='delete' and kind_of(lib.source_groups.get(group_id))==WEB_KIND:
                 group=lib.source_groups.get(group_id);count=len(lib.web_works.rows(group_id))
                 if not messagebox.askyesno('刪除作品群組',f'「{group["name"]}」含 {count} 個作品網址，刪除群組會一併移除這些網址與快照（不影響網站本身）。確定繼續？',parent=window):return
                 if count and not messagebox.askyesno('再次確認','此操作無法復原。確定刪除群組與全部作品網址？',icon='warning',parent=window):return
@@ -207,7 +208,7 @@ def open_group_manager(root,lib,on_change,kind='media'):
             picker.images.append(photo)
             ttk.Button(panel,text=entry['name'],image=photo,compound='top',command=lambda icon=entry['id']:apply(icon)).grid(row=index//6,column=index%6,padx=5,pady=5)
         picker.transient(window);picker.grab_set()
-    for text,action in [('新增群組','new'),('改名','rename'),('自訂代表圖','custom'),('刪除群組','delete')]:
+    for text,action in [('新增群組','new'),('新增網路作品','new-web'),('改名','rename'),('自訂代表圖','custom'),('刪除群組','delete')]:
         ttk.Button(actions,text=text,command=lambda a=action:run(a)).pack(side='left',padx=3)
     ttk.Button(actions,text='隱藏頻道／密碼',command=channel_settings).pack(side='left',padx=3)
     ttk.Button(actions,text='頭像設定',command=choose_icon).pack(side='left',padx=3)
