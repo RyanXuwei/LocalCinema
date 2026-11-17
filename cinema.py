@@ -765,10 +765,16 @@ def make_handler(lib):
                 if route=='/api/scan':
                     threading.Thread(target=lib.rescan,daemon=True).start(); return self.reply(200,{'ok':True})
                 if route=='/api/category':
-                    name=str(data['name']).strip()[:60]
-                    if not name: return self.reply(400,{'error':'分類不可空白'})
+                    group=data.get('group',DEFAULT_GROUP);action=data.get('action','add')
                     with lib.lock:
-                        lib.source_groups.add_tags(data.get('group',DEFAULT_GROUP),[name])
+                        members={item['id'] for item in lib.items if group in item.get('groups',[DEFAULT_GROUP])}
+                        if action=='prune':
+                            names=[str(name)[:60] for name in data.get('names',[])][:200]
+                            return self.reply(200,{'removed':lib.source_groups.prune_tags(group,names,members)})
+                        name=str(data['name']).strip()[:60]
+                        if not name: return self.reply(400,{'error':'分類不可空白'})
+                        if action=='delete':return self.reply(200,{'items':lib.source_groups.delete_tag(group,name)})
+                        lib.source_groups.add_tags(group,[name])
                     return self.reply(200,{'ok':True})
                 self.reply(404,{'error':'不存在'})
             except (ValueError,KeyError,TypeError): self.reply(400,{'error':'資料格式錯誤'})

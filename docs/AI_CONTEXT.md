@@ -1,6 +1,6 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v2.6.1（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-16。適用程式版本：v2.7.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
@@ -26,6 +26,10 @@
 - 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
 - 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
 - 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
+
+## 標籤數量與刪除（v2.7.0）
+
+- SourceGroups.tag_usage／delete_tag／prune_tags；/api/category action=add|delete|prune。prune 只處理本次快速 Tag 視窗中被取消的標籤，且由後端以目前群組實際項目判斷是否無人使用（忽略已不存在項目的舊標籤紀錄）。前端關閉按鈕與 Esc 直接觸發 prune（內建瀏覽器窗格不會送出 dialog close 事件，另保留 close 監聽）。
 
 ## 手動以分頁開啟（v2.6.0）
 

@@ -90,6 +90,28 @@ class SourceGroups:
         if item_id is not None:self.config['group_tags'].setdefault(group_id,{})[item_id]=list(tags)
         self.config['group_categories'][group_id]=sorted(set(self.tag_catalog(group_id)+tags))
         self.save(self.config)
+    def tag_usage(self,group_id,item_ids):
+        """How many current items in the group carry each tag; stale item ids are ignored."""
+        self.get(group_id);counts={}
+        for item_id,tags in self.config['group_tags'].get(group_id,{}).items():
+            if item_id in item_ids:
+                for tag in set(tags):counts[tag]=counts.get(tag,0)+1
+        return counts
+    def delete_tag(self,group_id,name):
+        """Remove a tag from the group's catalog and from every item in that group."""
+        self.get(group_id)
+        self.config['group_categories'][group_id]=[tag for tag in self.config['group_categories'].get(group_id,[]) if tag!=name]
+        changed=0
+        for item_id,tags in self.config['group_tags'].get(group_id,{}).items():
+            if name in tags:tags[:]=[tag for tag in tags if tag!=name];changed+=1
+        self.save(self.config);return changed
+    def prune_tags(self,group_id,names,item_ids):
+        """Drop the named tags from the catalog when no current item uses them any more."""
+        usage=self.tag_usage(group_id,item_ids);removed=[name for name in names if not usage.get(name)]
+        if removed:
+            self.config['group_categories'][group_id]=[tag for tag in self.config['group_categories'].get(group_id,[]) if tag not in removed]
+            self.save(self.config)
+        return removed
     def reorder(self,group_ids):
         """Accept the full order, or one kind's order placed back into that kind's slots."""
         groups=self.config['groups']; ids=[group['id'] for group in groups]
