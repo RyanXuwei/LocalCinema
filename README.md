@@ -272,6 +272,12 @@ MP4 不覆蓋既有同名檔案，必要時使用帶識別碼的替代檔名。�
 - [安全與存取限制](docs/SECURITY.md)
 - [素材與第三方授權](docs/ASSETS_AND_LICENSES.md)
 
+## 支持開發
+
+[🧋 請我喝珍奶 · Give me a Boba!](https://bitingbox.bobaboba.me)
+
+謝謝支持，讓創意繼續！🧋 Thanks for keeping my creativity going!
+
 ## 版權與授權
 
 Created by Ryan Hsu. 2026 © Copyright · BitingBox Studio
