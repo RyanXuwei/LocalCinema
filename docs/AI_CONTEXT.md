@@ -1,6 +1,6 @@
 # LocalCinema AI 交接
 
-更新日期：2026-11-16。適用程式版本：v2.7.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
+更新日期：2026-11-24。適用程式版本：v2.8.0（分支 refactor/architecture-v2）。先讀根目錄 AGENTS.md、本檔與 version.py，再按工作閱讀 README、ARCHITECTURE、DATA_MODEL、SECURITY、DEVELOPMENT。文件是導航，實際程式與重新執行的驗證優先。
 
 ## 目前狀態
 
@@ -26,6 +26,14 @@
 - 設定、SQLite、封面等 DATA 固定在 LocalAppData/LocalCinema；playback 可另選位置。新使用者預設程式同層/playback，舊 DATA/playback 存在時沿用，已自訂目錄優先。
 - 掃描一層邊界、平鋪子片源優先、群組獨立標籤、後端隱藏頻道授權與 media_replacements 識別別名不可破壞。
 - 來源影片只能經保存／驗證後回收，禁止永久刪除回退或覆蓋同名 MP4。程式快取的已驗證重複副本可依安全清理流程移除，不能據此放寬原始影片規則。
+
+## 網站標題與商標（v2.8.0）
+
+- 使用者要求後台可客製網站 Title 與商標，並與隱藏版權署名整合：後台新增「網站外觀」分頁（site_branding.build_branding_page），hide_branding 勾選從「服務與轉檔」搬入，行為與預設不變。
+- site_branding.SiteBranding 管理 config.site_title（清理空白／控制字元，最多 60 字）、site_title_in_header、site_logo（DATA/site-logo/<隨機>.png，等比例縮至 512，替換時刪除舊檔）。每次變更遞增 privacy_revision，前端經 /api/privacy 的 siteTitle／siteTitleInHeader／siteLogo 同步。
+- page_html 由 SiteBranding.apply 先在伺服器端替換 <title>、favicon、#brandLogo 與 #brandText，避免首次繪製閃爍；標題一律 html.escape，前端以 textContent 寫入。/site-logo/<stem> 只回傳目前設定的檔案。
+- 預設 .brand img 為 display:none（v1.3.0 設計）；只有自訂商標時 #brandLogo 帶 custom class 才顯示。#brandText 預設 display:contents，保持原本「映室 LOCAL CINEMA」間距。
+- 測試：tests/test_web_works.py BrandingTests（標題跳脫、長度限制、hide_branding 互動、商標縮放、HTTP 路由與舊檔清除）。前端以 Playwright 在隔離資料與合成商標驗證即時同步、重新整理與恢復預設。後台 Tk 分頁在雲端無 tkinter 環境未實機開啟，需在 Windows 上目視確認。
 
 ## 標籤數量與刪除（v2.7.0）
 
@@ -59,7 +67,7 @@
 
 ## 品牌署名開關（v2.1.0）
 
-- 使用者要求後台可選隱藏網頁上的 BitingBox 與 Ryan Hsu 署名：config.hide_branding，預設 false。只以 html.hide-branding 隱藏 header .sub 與 .studio-credit、改分頁標題；原始碼、README、LICENSE 與後台 Logo 保留。預設仍須顯示署名。
+- 使用者要求後台可選隱藏網頁上的 BitingBox 與 Ryan Hsu 署名：config.hide_branding，預設 false（v2.8.0 起勾選位於後台「網站外觀」分頁）。只以 html.hide-branding 隱藏 header .sub 與 .studio-credit、改分頁標題；原始碼、README、LICENSE 與後台 Logo 保留。預設仍須顯示署名。
 
 ## 作品群組（v2.0.0）
 

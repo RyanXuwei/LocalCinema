@@ -204,5 +204,36 @@ class BrandingTests(unittest.TestCase):
             self.assertTrue(lib.privacy_state()['hideBranding']);self.assertGreater(lib.privacy_state()['revision'],revision)
             lib.set_privacy(True);self.assertIn('class="privacy-blur hide-branding"',lib.page_html().decode())
         finally:lib.shutdown();tmp.cleanup()
+    def test_custom_title_and_logo(self):
+        tmp=tempfile.TemporaryDirectory(dir=TEST_HOME);root=Path(tmp.name)
+        lib=Library(lambda text:None,db_path=root/'brand2.db',config={'roots':[],'tags':{},'categories':[]})
+        try:
+            revision=lib.privacy_state()['revision']
+            lib.set_site_title('  My <Gallery>\n Site ')
+            state=lib.privacy_state();page=lib.page_html().decode()
+            self.assertEqual(state['siteTitle'],'My <Gallery> Site');self.assertGreater(state['revision'],revision)
+            self.assertIn('<title>My &lt;Gallery&gt; Site</title>',page);self.assertIn('映室 <span>LOCAL CINEMA</span>',page)
+            lib.set_hide_branding(True);self.assertIn('<title>My &lt;Gallery&gt; Site</title>',lib.page_html().decode())
+            lib.set_site_title('Studio',True);page=lib.page_html().decode()
+            self.assertIn('class="brandText custom">Studio</em>',page);self.assertTrue(lib.privacy_state()['siteTitleInHeader'])
+            with self.assertRaises(ValueError):lib.set_site_title('x'*61)
+            lib.set_site_title('');self.assertIn('<title>LocalCinema</title>',lib.page_html().decode());self.assertFalse(lib.privacy_state()['siteTitleInHeader'])
+            from PIL import Image
+            source=root/'logo.jpg';Image.new('RGB',(1600,800),'red').save(source)
+            lib.set_site_logo(source);logo=lib.privacy_state()['siteLogo'];page=lib.page_html().decode()
+            self.assertTrue(logo.startswith('/site-logo/'));self.assertIn('id="brandLogo" class="custom" src="'+logo+'"',page);self.assertIn('href="'+logo+'" type="image/png"',page)
+            first=lib.branding.logo_path()
+            with Image.open(first) as image:self.assertEqual(image.size,(512,256))
+            server=ThreadingHTTPServer(('127.0.0.1',0),make_handler(lib));threading.Thread(target=server.serve_forever,daemon=True).start()
+            try:
+                def get(path):
+                    connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=5);connection.request('GET',path);response=connection.getresponse();body=response.read();connection.close();return response.status,response.getheader('Content-Type'),body
+                status,kind,body=get(logo);self.assertEqual((status,kind),(200,'image/png'));self.assertTrue(body.startswith(b'\x89PNG'))
+                self.assertEqual(get('/site-logo/'+'0'*32)[0],404);self.assertEqual(get('/site-logo/..%2Fconfig')[0],404)
+                lib.set_site_logo(source);self.assertFalse(first.exists())
+                lib.clear_site_logo();self.assertEqual(lib.privacy_state()['siteLogo'],'');self.assertEqual(get(logo)[0],404)
+                self.assertIn('href="/assets/localcinema.ico"',lib.page_html().decode())
+            finally:server.shutdown();server.server_close()
+        finally:lib.shutdown();tmp.cleanup()
 
 if __name__=='__main__':unittest.main()
