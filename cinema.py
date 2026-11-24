@@ -12,6 +12,7 @@ from version import APP_VERSION
 from group_access import GroupAccess,visible_payload,may_read
 from web_works import WebWorks,WEB_KIND,group_kind
 from db_backup import DatabaseBackups,INTERVALS as BACKUP_INTERVALS
+from site_branding import SiteBranding,build_branding_page
 from http.cookies import SimpleCookie
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
@@ -179,7 +180,7 @@ def scan(roots, tags):
 
 class Library:
     def __init__(self, log, db_path=None, config=None, playback_dir=None):
-        self.config = load_config() if config is None else config; self.source_groups=SourceGroups(self.config,DATA,BASE/'assets'/'group-icons',save_config); self.group_access=GroupAccess(self.source_groups); self.items=[]; self.media={}; self.pictures={}; self.log=log
+        self.config = load_config() if config is None else config; self.source_groups=SourceGroups(self.config,DATA,BASE/'assets'/'group-icons',save_config); self.group_access=GroupAccess(self.source_groups); self.branding=SiteBranding(self.config,DATA,save_config); self.items=[]; self.media={}; self.pictures={}; self.log=log
         self.lock=threading.RLock(); self.scanning=False; self.token=secrets.token_urlsafe(32); self.access_key=secrets.token_urlsafe(24); self.revision=0
         self.db_path=db_path or DATA/'library.sqlite3'
         with self.db() as db:
@@ -319,7 +320,7 @@ class Library:
                 if target.is_file() and target.stat().st_size: self.register_conversion(key,source,target)
             except OSError: pass
     def privacy_state(self):
-        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0)),'lockOnPageClose':bool(self.config.get('lock_on_page_close',False)),'hideBranding':bool(self.config.get('hide_branding',False))}
+        with self.lock: return {'enabled':bool(self.config.get('privacy_blur',False)), 'revision':int(self.config.get('privacy_revision',0)),'lockOnPageClose':bool(self.config.get('lock_on_page_close',False)),'hideBranding':bool(self.config.get('hide_branding',False)),**self.branding.state()}
     def set_lock_on_page_close(self,enabled):
         with self.lock:
             self.config['lock_on_page_close']=bool(enabled);save_config(self.config)
@@ -332,6 +333,15 @@ class Library:
             self.config['privacy_revision']=int(self.config.get('privacy_revision',0))+1
             save_config(self.config)
         self.log('首頁已隱藏 BitingBox 與署名字樣。' if enabled else '首頁恢復顯示 BitingBox 與署名字樣。')
+    def set_site_title(self,text,in_header=None):
+        with self.lock: self.branding.set_title(text,in_header); title=self.branding.title()
+        self.log('網站標題已設定為「'+title+'」。' if title else '網站標題已恢復預設。')
+    def set_site_logo(self,path):
+        with self.lock: self.branding.set_logo(path)
+        self.log('網站商標已更新。')
+    def clear_site_logo(self):
+        with self.lock: self.branding.clear_logo()
+        self.log('網站商標已恢復預設。')
     def set_privacy(self,enabled):
         with self.lock:
             self.config['privacy_blur']=bool(enabled)
@@ -342,7 +352,7 @@ class Library:
         html=(BASE/'index.html').read_text('utf-8')
         state=self.privacy_state()
         if page_id:html=html.replace('<meta charset=', '<meta name="localcinema-page" content="'+page_id+'"><meta charset=',1)
-        if state['hideBranding']:html=html.replace('<title>LocalCinema · by BitingBox Studio</title>','<title>LocalCinema</title>',1)
+        with self.lock: html=self.branding.apply(html,state['hideBranding'])
         classes=' '.join(name for name,on in (('privacy-blur',state['enabled']),('hide-branding',state['hideBranding'])) if on)
         return html.replace('<html lang="zh-Hant">','<html lang="zh-Hant" class="'+classes+'" data-privacy-revision="'+str(state['revision'])+'">',1).encode('utf-8')
     def set_background(self,enabled):
@@ -640,6 +650,10 @@ def make_handler(lib):
                     lib.group_access.touch_page(cookie,page)
                     return self.reply(200,lib.page_html(page),'text/html; charset=utf-8')
                 if route=='/api/privacy': return self.reply(200,lib.privacy_state())
+                if route.startswith('/site-logo/'):
+                    with lib.lock: file=lib.branding.logo_file(route.rsplit('/',1)[1])
+                    if not file: return self.reply(404,{'error':'不存在'})
+                    return self.reply(200,file.read_bytes(),'image/png')
                 if route.startswith('/group-image/'):
                     if route.rsplit('/',1)[1] not in self.allowed_groups():return self.reply(404,{'error':'不存在'})
                     try: file=lib.source_groups.image(route.rsplit('/',1)[1])
@@ -1143,8 +1157,9 @@ def _run(instance):
     ttk.Label(content,text='加入多個影片來源，啟動後以瀏覽器觀看；關閉視窗可留在系統列。').pack(anchor='w',padx=20)
     outer_content=content
     backend_pages=ttk.Notebook(outer_content,style='Source.TNotebook'); backend_pages.pack(fill='both',expand=True,padx=12,pady=8)
-    sources_page=ttk.Frame(backend_pages); service_page=ttk.Frame(backend_pages); backup_page=ttk.Frame(backend_pages)
-    backend_pages.add(sources_page,text='片源與群組');backend_pages.add(service_page,text='服務與轉檔');backend_pages.add(backup_page,text='資料備份')
+    sources_page=ttk.Frame(backend_pages); service_page=ttk.Frame(backend_pages); backup_page=ttk.Frame(backend_pages); branding_page=ttk.Frame(backend_pages)
+    backend_pages.add(sources_page,text='片源與群組');backend_pages.add(service_page,text='服務與轉檔');backend_pages.add(branding_page,text='網站外觀');backend_pages.add(backup_page,text='資料備份')
+    build_branding_page(branding_page,root,lib,BASE,ttk,tk,filedialog,messagebox)
     build_backup_page(backup_page,root,lib);lib.backups.start()
     content=sources_page
     group_toolbar=ttk.Frame(content);group_toolbar.pack(fill='x',padx=20,pady=(12,0))
@@ -1329,8 +1344,6 @@ def _run(instance):
     ttk.Checkbutton(privacy_row,text='隱蔽（所有影片、封面與預覽加上毛玻璃）',variable=privacy_var,command=lambda:lib.set_privacy(privacy_var.get())).pack(side='left')
     close_lock_var=tk.BooleanVar(value=bool(lib.config.get('lock_on_page_close',False)))
     ttk.Checkbutton(content,text='關閉頁面即上鎖（最後一個分頁關閉時）',variable=close_lock_var,command=lambda:lib.set_lock_on_page_close(close_lock_var.get())).pack(anchor='w',padx=20,pady=4)
-    branding_var=tk.BooleanVar(value=bool(lib.config.get('hide_branding',False)))
-    ttk.Checkbutton(content,text='隱藏首頁的 BitingBox Studio 與 Ryan Hsu 版權署名',variable=branding_var,command=lambda:lib.set_hide_branding(branding_var.get())).pack(anchor='w',padx=20,pady=4)
     background_row=ttk.Frame(content); background_row.pack(fill='x',padx=20,pady=(8,2))
     background_var=tk.BooleanVar(value=lib.background_enabled)
     def toggle_background():

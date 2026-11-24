@@ -66,3 +66,5 @@ header .sourceGroupToggle{width:52px;min-width:52px;height:52px;padding:2px;disp
 .tagDelete:hover{background:#6b2f2a;color:#ffe9e4}
 .filterTag .tagCount{margin-left:6px}
 #tagDialog{overflow-x:hidden}
+/* Custom site title/logo (v2.8.0): wrapper is transparent until a custom header title is shown. */
+.brandText{display:contents;font-style:normal}.brand img.custom{display:block;width:auto;max-width:120px;height:34px;object-fit:contain}@media(max-width:760px){.brand img.custom{height:28px;max-width:84px}}.brandText.custom{display:block;max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}

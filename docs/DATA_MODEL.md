@@ -11,6 +11,8 @@
 - 舊 categories／tags 保留相容資訊，不應再當成所有群組的共用分類來源。
 - groups[].kind：缺少時視為 media；"web" 為作品群組，只收網址不收根目錄。
 - hide_branding：是否在網頁隱藏 BitingBox Studio 副標、頁尾標誌與署名，預設 false；變更會遞增 privacy_revision 讓已開啟頁面同步。
+- site_title：自訂網頁分頁標題，空字串代表預設；最多 60 字。site_title_in_header：是否同時取代首頁左上角品牌文字，預設 false。
+- site_logo：自訂商標檔名，檔案位於 DATA/site-logo/，缺少或不存在時使用預設圖示。標題與商標變更同樣遞增 privacy_revision。
 - lock_on_page_close：是否在同一瀏覽器最後一個分頁離開後撤銷隱藏頻道授權，預設 false。
 - 其他設定包含背景預轉、隱蔽等；保留未知設定，不以固定預設物件覆蓋整份檔案。
 
